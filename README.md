@@ -28,7 +28,7 @@ schemi visuali, sommari e flashcard — pronti per lo studio.
 
 ### Versione online (consigliata)
 
-Apri **https://lectureai-nvqr.onrender.com** da qualsiasi dispositivo.
+Apri **https://lectureai-nvgr.onrender.com/** da qualsiasi dispositivo.
 
 1. Scegli il provider AI dal menu in alto
 2. Incolla la tua API key personale e clicca **Salva**
