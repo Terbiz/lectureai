@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Sfondo scuro arrotondato -->
+  <rect width="64" height="64" rx="14" fill="#0f0e0c"/>
+  <!-- Barra ruggine in basso (richiama l'header dell'app) -->
+  <rect x="0" y="56" width="64" height="8" fill="#c4440a"/>
+  <!-- "L" bianca stilizzata -->
+  <rect x="16" y="14" width="9" height="32" rx="1.5" fill="#f5f0e8"/>
+  <rect x="16" y="37" width="24" height="9" rx="1.5" fill="#f5f0e8"/>
+  <!-- Pallino oro "AI" in alto a destra -->
+  <circle cx="48" cy="18" r="6" fill="#d4a017"/>
+  <!-- Punto interno scuro nel pallino -->
+  <circle cx="48" cy="18" r="2" fill="#0f0e0c"/>
+</svg>
