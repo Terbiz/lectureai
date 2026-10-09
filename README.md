@@ -1,21 +1,21 @@
-# LectureAI 🎓
+# Lecture AI 🎓
 
 **Appunti universitari intelligenti, generati dall'AI.**
 
  @==========================================@  
- ||.....................➡️ **https://lectureai-nvgr.onrender.com** ⬅️.................... ||
+ ||.....................➡️ **https://lectureai-nvgr.onrender.com** ⬅️....................... ||
  @==========================================@
 
 LectureAI trasforma lezioni registrate, trascrizioni o PDF in appunti strutturati,
 schemi visuali, sommari e flashcard — pronti per lo studio.
 
----
+<br>
 
 
-## 🚀 Uso  
+##  Uso  
  
 
-### Versione online (consigliata)
+### 🌎 Versione online (consigliata)
 
 Apri **https://lectureai-nvgr.onrender.com** da qualsiasi dispositivo.
 
@@ -27,16 +27,20 @@ Apri **https://lectureai-nvgr.onrender.com** da qualsiasi dispositivo.
 > ⚠️ La API key è tua personale. Non è memorizzata sul server, resta solo nel tuo
 > browser (localStorage). Nessuno può vederla né usarla.
 
-### Versione desktop locale
+### 🖥️ Versione desktop locale
 
 ```bash
 pip install flask requests pystray pillow
 python app.py
 ```
 Il browser si apre automaticamente su `http://localhost:5000`.
----
 
-## ✨ Funzionalità
+
+<br><br>
+
+
+
+#  Funzionalità
 
 - 🎙️ **Trascrizione live** della lezione con riconoscimento vocale (Chrome/Edge)
 - 📄 **Import PDF** del materiale del professore
@@ -53,7 +57,7 @@ Il browser si apre automaticamente su `http://localhost:5000`.
 - ✍️ **Trascrizione editabile in tempo reale**: correggi le parole sbagliate
   mentre l'AI continua a scrivere, senza perdere nulla
 
----
+<br>
 
 ## 🎓 Profili disciplina
 
@@ -76,8 +80,10 @@ Impostazioni e salvare la tua versione. Le modifiche restano salvate solo nel tu
 browser.
 
 ---
+<br>
+<br>
 
-## 🔑 Cos'è una API key e come ottenerla
+# 🔑 Cos'è una API key e come ottenerla
 
 ### In parole semplici
 
