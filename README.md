@@ -2,8 +2,8 @@
 
 **Appunti universitari intelligenti, generati dall'AI.**
 
- @==========================================@
-➡️ **https://lectureai-nvgr.onrender.com** ⬅️
+ @==========================================@  
+ ||.....................➡️ **https://lectureai-nvgr.onrender.com** ⬅️.................... ||
  @==========================================@
 
 LectureAI trasforma lezioni registrate, trascrizioni o PDF in appunti strutturati,
@@ -11,7 +11,9 @@ schemi visuali, sommari e flashcard — pronti per lo studio.
 
 ---
 
-## 🚀 Uso
+
+## 🚀 Uso  
+ 
 
 ### Versione online (consigliata)
 
