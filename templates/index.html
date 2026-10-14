@@ -1748,29 +1748,36 @@ document.addEventListener('visibilitychange', () => {
         }
       };
 
-      // Rileva se siamo su Safari/iOS
-const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      // Rileva se siamo su Safari/iOS per adattare il ritardo di riavvio
+      const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-recObj.onend = () => {
-  if (!isRec) return;
-  
-  // Su Safari/iOS, riavvia con un ritardo maggiore per evitare conflitti
-  // e considera che potrebbe non ripartire da solo.
-  const restartDelay = isSafariIOS ? 1000 : 300;
-  
-  setTimeout(() => {
-    if (!isRec) return;
-    try {
-      recObj.start();
-      _srRestartFails = 0;
-    } catch (err) {
-      _srRestartFails++;
-      if (_srRestartFails >= 3) {
-        // ... logica esistente per ricreare l'oggetto ...
-      }
+      recObj.onend = () => {
+        if (!isRec) return;
+
+        // Su Safari/iOS serve un ritardo maggiore per evitare stati inconsistenti
+        const restartDelay = isSafariIOS ? 1200 : 300;
+
+        setTimeout(() => {
+          if (!isRec) return;
+          try {
+            recObj.start();
+            _srRestartFails = 0;
+          } catch (err) {
+            _srRestartFails++;
+            if (_srRestartFails >= 3) {
+              // l'oggetto è in uno stato corrotto: lo ricreo da zero
+              console.warn('[SR] ricreo oggetto dopo riavvii falliti');
+              try { recObj.onend = null; recObj.onerror = null; recObj.onresult = null; } catch (_) { }
+              buildRecObj();
+              try { recObj.start(); } catch (_) { }
+              _srRestartFails = 0;
+            }
+          }
+        }, restartDelay);
+      };
     }
-  }, restartDelay);
-};
+
 
     function startSRWatchdog() {
       stopSRWatchdog();
