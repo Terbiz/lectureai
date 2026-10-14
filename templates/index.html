@@ -179,12 +179,14 @@
       overflow: hidden
     }
 
-    .left {
+        .left {
       background: var(--cream);
       border-right: 2px solid var(--border);
       display: flex;
       flex-direction: column;
-      overflow: hidden
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0
     }
 
     .sec {
@@ -193,9 +195,10 @@
       flex-shrink: 0
     }
 
-    .secg {
+        .secg {
       padding: 13px 15px;
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 200px;
       display: flex;
       flex-direction: column;
       overflow: hidden
@@ -1473,17 +1476,28 @@ document.addEventListener('visibilitychange', () => {
     // Questi wrapper non lanciano mai eccezioni: se lo storage è bloccato,
     // restituiscono null / ignorano la scrittura. La app continua a funzionare
     // (senza salvare nulla) invece di rompersi completamente.
-    let _storageBlocked = false;
+        let _storageBlocked = false;
     function safeGet(k) {
-      try { return safeGet(k); }
-      catch (e) { if (!_storageBlocked) { _storageBlocked = true; console.warn('[LectureAI] localStorage bloccato da Safari ITP'); } return null; }
+      try { return localStorage.getItem(k); }
+      catch (e) {
+        if (!_storageBlocked) {
+          _storageBlocked = true;
+          console.warn('[LectureAI] localStorage bloccato (Safari ITP?)');
+        }
+        return null;
+      }
     }
     function safeSet(k, v) {
-      try { safeSet(k, v); }
-      catch (e) { if (!_storageBlocked) { _storageBlocked = true; console.warn('[LectureAI] localStorage bloccato da Safari ITP'); } }
+      try { localStorage.setItem(k, v); }
+      catch (e) {
+        if (!_storageBlocked) {
+          _storageBlocked = true;
+          console.warn('[LectureAI] localStorage bloccato (Safari ITP?)');
+        }
+      }
     }
     function safeRemove(k) {
-      try { safeRemove(k); }
+      try { localStorage.removeItem(k); }
       catch (e) { /* silenzioso */ }
     }
     
