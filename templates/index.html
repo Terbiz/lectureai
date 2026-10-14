@@ -1464,19 +1464,47 @@ document.addEventListener('visibilitychange', () => {
     document.getElementById('hdate').textContent =
       new Date().toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
 
+    
+    
+    // ══════════════════════════════════════════════════════════════
+    //  SAFE STORAGE — resiste a Safari ITP che blocca localStorage
+    // ══════════════════════════════════════════════════════════════
+    // Safari su iPad/iPhone può bloccare localStorage per "Tracking Prevention".
+    // Questi wrapper non lanciano mai eccezioni: se lo storage è bloccato,
+    // restituiscono null / ignorano la scrittura. La app continua a funzionare
+    // (senza salvare nulla) invece di rompersi completamente.
+    let _storageBlocked = false;
+    function safeGet(k) {
+      try { return safeGet(k); }
+      catch (e) { if (!_storageBlocked) { _storageBlocked = true; console.warn('[LectureAI] localStorage bloccato da Safari ITP'); } return null; }
+    }
+    function safeSet(k, v) {
+      try { safeSet(k, v); }
+      catch (e) { if (!_storageBlocked) { _storageBlocked = true; console.warn('[LectureAI] localStorage bloccato da Safari ITP'); } }
+    }
+    function safeRemove(k) {
+      try { safeRemove(k); }
+      catch (e) { /* silenzioso */ }
+    }
+    
     // ══════════════════════════════════════════════════════════════
     //  INIT
     // ══════════════════════════════════════════════════════════════
-    (function init() {
-      const p = localStorage.getItem('lai_provider') || 'gemini';
-      provider = p; document.getElementById('provSel').value = p;
-      const k = localStorage.getItem('lai_key_' + p) || '';
-      if (k) { apiKey = k; document.getElementById('apiInput').value = k; setAok('ok'); }
+
+        (function init() {
+      try {
+        const p = safeGet('lai_provider') || 'gemini';
+        provider = p; document.getElementById('provSel').value = p;
+        const k = safeGet('lai_key_' + p) || '';
+        if (k) { apiKey = k; document.getElementById('apiInput').value = k; setAok('ok'); }
+      } catch (e) {
+        console.warn('[LectureAI] init fallito, uso default:', e);
+      }
       document.getElementById('apiInput').placeholder =
-        p === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
-          : p === 'anthropic' ? 'sk-ant-... (console.anthropic.com)'
+        provider === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
+          : provider === 'anthropic' ? 'sk-ant-... (console.anthropic.com)'
             : 'sk-... (platform.deepseek.com)';
-            loadHistList();
+      try { loadHistList(); } catch (e) { console.warn('[LectureAI] loadHistList fallito:', e); }
     })();
 
     // ══════════════════════════════════════════════════════════════
@@ -1484,8 +1512,8 @@ document.addEventListener('visibilitychange', () => {
     // ══════════════════════════════════════════════════════════════
     function onProvChange() {
       provider = document.getElementById('provSel').value;
-      localStorage.setItem('lai_provider', provider);
-      const k = localStorage.getItem('lai_key_' + provider) || '';
+      safeSet('lai_provider', provider);
+      const k = safeGet('lai_key_' + provider) || '';
       document.getElementById('apiInput').value = k; apiKey = k;
       document.getElementById('apiInput').placeholder =
         provider === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
@@ -1508,7 +1536,7 @@ document.addEventListener('visibilitychange', () => {
       else if (provider === 'anthropic') { ok = v.startsWith('sk-ant-'); hint = 'Chiave Anthropic: deve iniziare con sk-ant-'; }
       else { ok = v.startsWith('sk-'); hint = 'Chiave DeepSeek: deve iniziare con sk-'; }
       if (!ok) { toast(hint, 'err'); return; }
-      apiKey = v; localStorage.setItem('lai_key_' + provider, v);
+      apiKey = v; safeSet('lai_key_' + provider, v);
       setAok('ok'); toast('✓ API key salvata!', 'ok');
     }
     function setAok(s) {
@@ -1675,7 +1703,7 @@ document.addEventListener('visibilitychange', () => {
       if (!recObj) buildRecObj();
       try { recObj.start(); } catch (e) { console.warn('[SR start]', e.message); }
     }
-    
+
     function buildRecObj() {
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
       recObj = new SR();
@@ -1973,7 +2001,7 @@ function copyTranscript() {
     }
 
     function getHist() {
-      try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; }
+      try { return JSON.parse(safeGet(HIST_KEY) || '[]'); } catch { return []; }
     }
 
     function saveHist() {
@@ -1989,7 +2017,7 @@ function copyTranscript() {
       hist.unshift(entry);
       // Tieni max 30 sessioni
       if (hist.length > 30) hist.length = 30;
-      localStorage.setItem(HIST_KEY, JSON.stringify(hist));
+      safeSet(HIST_KEY, JSON.stringify(hist));
       loadHistList();
       toast('✓ Sessione salvata in cronologia!', 'ok');
     }
@@ -2015,7 +2043,7 @@ function copyTranscript() {
       if (idx === '') { toast('Seleziona una sessione da eliminare.', 'err'); return; }
       const hist = getHist();
       hist.splice(parseInt(idx), 1);
-      localStorage.setItem(HIST_KEY, JSON.stringify(hist));
+      safeSet(HIST_KEY, JSON.stringify(hist));
       loadHistList();
       toast('Sessione eliminata.', 'ok');
     }
@@ -2174,9 +2202,9 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
     };
 
     const DEFAULT_PRESET = 'informatica';
-    let activePreset = localStorage.getItem('lai_preset') || DEFAULT_PRESET;
+    let activePreset = safeGet('lai_preset') || DEFAULT_PRESET;
     function getCustomKey(p) { return 'lai_preset_custom_' + p; }
-    let customPanel = localStorage.getItem(getCustomKey(activePreset)) || null;
+    let customPanel = safeGet(getCustomKey(activePreset)) || null;
 
     function getPanel() {
       return customPanel || PRESET_PANELS[activePreset] || PRESET_PANELS[DEFAULT_PRESET];
@@ -2970,13 +2998,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     function onPresetChange() {
       const sel = document.getElementById('presetSel');
       activePreset = sel.value;
-      customPanel = localStorage.getItem(getCustomKey(activePreset)) || null;
+      customPanel = safeGet(getCustomKey(activePreset)) || null;
       document.getElementById('presetEdit').value = getPanel();
     }
     function resetPresetEdit() {
       const def = PRESET_PANELS[activePreset] || '';
       document.getElementById('presetEdit').value = def;
-      localStorage.removeItem(getCustomKey(activePreset));
+      safeRemove(getCustomKey(activePreset));
       customPanel = null;
       toast('↺ Preset ripristinato (non ancora salvato)', 'ok');
     }
@@ -2984,13 +3012,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const val = document.getElementById('presetEdit').value.trim();
       const def = PRESET_PANELS[activePreset] || '';
       if (val === def.trim()) {
-        localStorage.removeItem(getCustomKey(activePreset));
+        safeRemove(getCustomKey(activePreset));
         customPanel = null;
       } else {
-        localStorage.setItem(getCustomKey(activePreset), val);
+        safeSet(getCustomKey(activePreset), val);
         customPanel = val;
       }
-      localStorage.setItem('lai_preset', activePreset);
+      safeSet('lai_preset', activePreset);
       toast('✓ Preset "' + activePreset + '" salvato', 'ok');
       closeSettings();
     }
