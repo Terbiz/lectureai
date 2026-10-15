@@ -1652,6 +1652,31 @@ document.addEventListener('visibilitychange', () => {
     //  Permesso microfono: getUserMedia UNA SOLA VOLTA, stream tenuto aperto.
     //  Chrome su localhost memorizza il permesso permanentemente.
     // ══════════════════════════════════════════════════════════════
+    // Quando l'utente cambia lingua, ricrea l'oggetto SpeechRecognition
+// (altrimenti la nuova lingua non viene applicata fino al reload)
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('langSel');
+  if (sel) {
+    sel.addEventListener('change', () => {
+      if (isRec) {
+        // Se sta registrando, applica al prossimo riavvio (non interrompere ora)
+        console.log('[SR] Lingua cambiata durante la registrazione:', sel.value);
+      }
+      // Ricrea l'oggetto: la nuova lingua sarà usata al prossimo start()
+      try {
+        if (recObj) {
+          try { recObj.stop(); } catch(_) {}
+          try { recObj.onend = null; recObj.onerror = null; recObj.onresult = null; } catch(_) {}
+        }
+        recObj = null;
+        buildRecObj();
+        console.log('[SR] Oggetto ricreato con lingua:', sel.value);
+      } catch (e) {
+        console.warn('[SR] Errore ricreando oggetto:', e);
+      }
+    });
+  }
+});
     function toggleRec() { isRec ? pauseRec() : startRec(); }
 
         async function startRec() {
@@ -1766,8 +1791,19 @@ document.addEventListener('visibilitychange', () => {
       const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-      recObj.onend = () => {
+            recObj.onend = () => {
         if (!isRec) return;
+
+        // ⚠️ FIX: committa l'interim PRIMA di riavviare, altrimenti le ultime
+        // parole pronunciate vengono perse (Safari in particolare le scarta).
+        if (interimTr && interimTr.trim()) {
+          const pending = interimTr.trim() + ' ';
+          finalTr += pending;
+          appendFinalToTbox(pending);
+          interimTr = '';
+          updateInterimTbox('');
+          chkBtn();
+        }
 
         const restartDelay = isSafariIOS ? 1200 : 300;
 
