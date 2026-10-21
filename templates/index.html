@@ -1216,7 +1216,7 @@
       <div class="sec">
         <div class="lbl">Materiale del professore</div>
         <div class="dz" id="dz" ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
-         <input type="file" id="fileIn" accept=".pdf,.txt,.md,.tex,.m4a,.mp3,.wav,.mp4,.webm,.aac,.ogg" onchange="onFile(event)" multiple>
+         <input type="file" id="fileIn" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/webm,.pdf,.txt,.md,.tex,.m4a,.mp3,.wav,.mp4,.webm,.aac,.ogg" onchange="onFile(event)" multiple>
           <div id="dzIco" style="font-size:1.35rem;margin-bottom:3px">📄</div>
           <div id="dzTxt">Trascina uno o più file<br><small>PDF · TXT · MD</small></div>
         </div>
@@ -1571,9 +1571,19 @@ document.addEventListener('visibilitychange', () => {
         async function loadFile(file) {
       if (uploadedFiles.find(f => f.name === file.name)) { toast('⚠ "' + file.name + '" già caricato', 'err'); return; }
       
-      // NUOVO: Rilevamento file audio (inclusi .m4a di Apple)
-      const isAudio = file.type.startsWith('audio/') || file.type === 'video/mp4' || /\.(m4a|mp3|wav|mp4|webm|aac|ogg)$/i.test(file.name);
+      // Rilevamento file audio robusto (Safari iOS bug: file.type può essere vuoto)
+      let fileType = file.type || '';
+      const fileName = (file.name || '').toLowerCase();
       
+      // Se il MIME type è vuoto o generico, deduciamo il tipo dall'estensione
+      if (!fileType || fileType === 'application/octet-stream') {
+        if (/\.(m4a|mp3|wav|aac|ogg|webm|mp4)$/i.test(fileName)) {
+          fileType = 'audio/' + fileName.split('.').pop();
+        }
+      }
+
+      const isAudio = fileType.startsWith('audio/') || /\.(m4a|mp3|wav|mp4|webm|aac|ogg)$/i.test(fileName);
+
       if (isAudio) {
         uploadedFiles.push({
           name: file.name, file: file, isAudio: true,

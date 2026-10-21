@@ -183,7 +183,20 @@ def transcribe_audio():
         return jsonify({'error': {'message': 'File audio troppo grande (max 20MB).'}}), 413
 
     audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-    mime_type = file.content_type or 'audio/mp4'
+    mime_type = file.content_type or ''
+    # Se il MIME type è vuoto o generico, deduciamolo dall'estensione
+    if not mime_type or mime_type == 'application/octet-stream':
+        filename = (file.filename or '').lower()
+        if filename.endswith('.m4a'):
+            mime_type = 'audio/x-m4a'
+        elif filename.endswith('.mp3'):
+            mime_type = 'audio/mpeg'
+        elif filename.endswith('.wav'):
+            mime_type = 'audio/wav'
+        elif filename.endswith('.webm'):
+            mime_type = 'audio/webm'
+        else:
+            mime_type = 'audio/mp4'
 
     body = {
         "contents": [{
