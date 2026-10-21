@@ -2609,6 +2609,81 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
       return out;
     }
+        // ══════════════════════════════════════════════════════════════
+    //  TRASCRIZIONE AUDIO LUNGO (Gemini File API)
+    //  Supporta file fino a 2GB (circa 9 ore di audio)
+    // ══════════════════════════════════════════════════════════════
+    
+    async function uploadAudioToGemini(file, apiKey) {
+      // Step 1: inizia l'upload resumable
+      const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'X-Goog-Upload-Protocol': 'resumable',
+          'X-Goog-Upload-Command': 'start',
+          'X-Goog-Upload-Header-Content-Length': String(file.size),
+          'X-Goog-Upload-Header-Content-Type': file.type || 'audio/mp4',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ file: { display_name: file.name } })
+      });
+      
+      if (!initRes.ok) {
+        const err = await initRes.text();
+        throw new Error('Inizializzazione upload fallita: ' + err.slice(0, 200));
+      }
+      
+      const uploadUrl = initRes.headers.get('X-Goog-Upload-URL');
+      if (!uploadUrl) throw new Error('URL di upload non ricevuto da Gemini');
+      
+      // Step 2: carica il file vero e proprio
+      const uploadRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'X-Goog-Upload-Command': 'upload, finalize',
+          'X-Goog-Upload-Offset': '0',
+          'Content-Length': String(file.size),
+          'Content-Type': file.type || 'audio/mp4'
+        },
+        body: file
+      });
+      
+      if (!uploadRes.ok) {
+        const err = await uploadRes.text();
+        throw new Error('Upload file fallito: ' + err.slice(0, 200));
+      }
+      
+      const uploadData = await uploadRes.json();
+      return uploadData.file.uri; // es. "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+    }
+
+    async function transcribeAudioWithGemini(fileUri, mimeType, apiKey) {
+      const body = {
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: 'Trascrivi fedelmente questo audio. Restituisci SOLO il testo trascritto, niente commenti.' },
+            { fileData: { mimeType: mimeType, fileUri: fileUri } }
+          ]
+        }],
+        generationConfig: { temperature: 0.2 }
+      };
+      
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error('Trascrizione fallita: ' + err.slice(0, 200));
+      }
+      
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return text.trim();
+    }
 
     // ══════════════════════════════════════════════════════════════
     //  GENERATE
@@ -2618,24 +2693,28 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
       apiKey = key;
 
-      // NUOVO: Trascrizione degli eventuali file audio caricati
+      // NUOVO: Trascrizione degli eventuali file audio caricati (Gemini File API)
       const audioFiles = uploadedFiles.filter(f => f.isAudio);
       if (audioFiles.length > 0) {
-        setOv('Trascrizione audio in corso...', 5);
+        if (provider !== 'gemini') {
+          hideOv();
+          toast('⚠️ La trascrizione dei file audio è supportata solo con Google Gemini. Cambia provider dal menu in alto.', 'err');
+          return;
+        }
         for (const af of audioFiles) {
           try {
-            const fd = new FormData();
-            fd.append('audio', af.file);
-            fd.append('key', apiKey);
+            setOv('Caricamento audio su Gemini... (potrebbe richiedere qualche minuto per file grandi)', 5);
+            const mimeType = af.file.type || 'audio/mp4';
             
-            const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
-            if (!res.ok) {
-                const j = await res.json().catch(()=>({}));
-                throw new Error(j.error?.message || 'Errore API');
-            }
-            const data = await res.json();
-            if (data.text) {
-              finalTr += (finalTr ? '\n\n' : '') + data.text + ' ';
+            // 1. Carica il file su Gemini
+            const fileUri = await uploadAudioToGemini(af.file, apiKey);
+            
+            // 2. Trascrivi il file
+            setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
+            const text = await transcribeAudioWithGemini(fileUri, mimeType, apiKey);
+            
+            if (text) {
+              finalTr += (finalTr ? '\n\n' : '') + text + ' ';
               renderTbox();
             }
           } catch (err) {
