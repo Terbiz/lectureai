@@ -1216,7 +1216,7 @@
       <div class="sec">
         <div class="lbl">Materiale del professore</div>
         <div class="dz" id="dz" ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
-          <input type="file" id="fileIn" accept=".pdf,.txt,.md,.tex" onchange="onFile(event)" multiple>
+         <input type="file" id="fileIn" accept=".pdf,.txt,.md,.tex,.m4a,.mp3,.wav,.mp4,.webm,.aac,.ogg" onchange="onFile(event)" multiple>
           <div id="dzIco" style="font-size:1.35rem;margin-bottom:3px">📄</div>
           <div id="dzTxt">Trascina uno o più file<br><small>PDF · TXT · MD</small></div>
         </div>
@@ -1568,8 +1568,22 @@ document.addEventListener('visibilitychange', () => {
     function dzDrop(e) { e.preventDefault(); dzLeave(); Array.from(e.dataTransfer.files).forEach(f => loadFile(f)); }
     function onFile(e) { Array.from(e.target.files).forEach(f => loadFile(f)); e.target.value = ''; }
 
-    async function loadFile(file) {
+        async function loadFile(file) {
       if (uploadedFiles.find(f => f.name === file.name)) { toast('⚠ "' + file.name + '" già caricato', 'err'); return; }
+      
+      // NUOVO: Rilevamento file audio (inclusi .m4a di Apple)
+      const isAudio = file.type.startsWith('audio/') || file.type === 'video/mp4' || /\.(m4a|mp3|wav|mp4|webm|aac|ogg)$/i.test(file.name);
+      
+      if (isAudio) {
+        uploadedFiles.push({
+          name: file.name, file: file, isAudio: true,
+          info: (file.size / (1024 * 1024)).toFixed(1) + ' MB'
+        });
+        renderFileList(); chkBtn();
+        toast('✓ Audio "' + file.name + '" caricato. Verrà trascritto prima di generare.', 'ok');
+        return;
+      }
+
       try {
         const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
         let txt, pages;
@@ -1617,9 +1631,9 @@ document.addEventListener('visibilitychange', () => {
       document.getElementById('dzIco').textContent = '📄';
       document.getElementById('dzTxt').innerHTML = uploadedFiles.length + ' file caricato' + (uploadedFiles.length > 1 ? 'i' : '')
         + '<br><small>trascina altri o clicca per aggiungere</small>';
-      list.innerHTML = uploadedFiles.map((f, i) =>
+            list.innerHTML = uploadedFiles.map((f, i) =>
         '<div class="file-item">'
-        + '<span class="fi-ico">📄</span>'
+        + '<span class="fi-ico">' + (f.isAudio ? '🎵' : '📄') + '</span>'
         + '<span class="fi-name" title="' + escHtml(f.name) + '">' + escHtml(f.name) + '</span>'
         + '<span class="fi-info">' + f.info + '</span>'
         + '<button class="fi-rm" onclick="rmFile(' + i + ')" title="Rimuovi">✕</button>'
@@ -2589,10 +2603,41 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // ══════════════════════════════════════════════════════════════
     //  GENERATE
     // ══════════════════════════════════════════════════════════════
-    async function generate() {
+        async function generate() {
       const key = apiKey || document.getElementById('apiInput').value.trim();
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
       apiKey = key;
+
+      // NUOVO: Trascrizione degli eventuali file audio caricati
+      const audioFiles = uploadedFiles.filter(f => f.isAudio);
+      if (audioFiles.length > 0) {
+        setOv('Trascrizione audio in corso...', 5);
+        for (const af of audioFiles) {
+          try {
+            const fd = new FormData();
+            fd.append('audio', af.file);
+            fd.append('key', apiKey);
+            
+            const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+            if (!res.ok) {
+                const j = await res.json().catch(()=>({}));
+                throw new Error(j.error?.message || 'Errore API');
+            }
+            const data = await res.json();
+            if (data.text) {
+              finalTr += (finalTr ? '\n\n' : '') + data.text + ' ';
+              renderTbox();
+            }
+          } catch (err) {
+            hideOv();
+            toast('Errore trascrizione ' + af.name + ': ' + err.message, 'err');
+            return;
+          }
+        }
+        // Rimuoviamo l'audio dalla lista per non ritrascriverlo se si rigenera
+        uploadedFiles = uploadedFiles.filter(f => !f.isAudio);
+        renderFileList();
+      }
 
       const rawTr = (tmode === 'text' ? pastedTr : (finalTr + ' ' + interimTr)).trim();
       const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;

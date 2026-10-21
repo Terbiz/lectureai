@@ -7,6 +7,7 @@ LectureAI — Flask backend
 
 from flask import Flask, render_template, request, jsonify, Response
 import requests
+import base64
 import threading
 import webbrowser
 import time
@@ -161,6 +162,51 @@ def proxy_deepseek():
         return jsonify({'error': {'message': 'Nessuna connessione internet o host irraggiungibile.'}}), 503
     except requests.exceptions.Timeout:
         return jsonify({'error': {'message': 'Timeout: DeepSeek non ha risposto in tempo.'}}), 504
+    except Exception as e:
+        return jsonify({'error': {'message': str(e)}}), 500
+
+# ── Trascrizione Audio (Gemini) ───────────────────────────────────────────────
+@app.route('/api/transcribe', methods=['POST'])
+def transcribe_audio():
+    if 'audio' not in request.files:
+        return jsonify({'error': {'message': 'Nessun file audio caricato.'}}), 400
+
+    file = request.files['audio']
+    api_key = request.form.get('key', '')
+    if not api_key:
+        return jsonify({'error': {'message': 'API key mancante.'}}), 401
+
+    audio_data = file.read()
+    
+    # Gemini ha un limite di ~20MB per l'audio inline. 
+    if len(audio_data) > 20 * 1024 * 1024:
+        return jsonify({'error': {'message': 'File audio troppo grande (max 20MB).'}}), 413
+
+    audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+    mime_type = file.content_type or 'audio/mp4'
+
+    body = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": "Trascrivi fedelmente questo audio. Restituisci SOLO il testo trascritto, niente commenti."},
+                {"inlineData": {"mimeType": mime_type, "data": audio_b64}}
+            ]
+        }],
+        "generationConfig": {"temperature": 0.2}
+    }
+
+    try:
+        resp = requests.post(
+            f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}',
+            json=body, timeout=180
+        )
+        if not resp.ok:
+            return Response(resp.content, status=resp.status_code, content_type='application/json')
+        
+        data = resp.json()
+        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+        return jsonify({'text': text.strip()})
     except Exception as e:
         return jsonify({'error': {'message': str(e)}}), 500
 
