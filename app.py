@@ -14,7 +14,7 @@ import time
 import os
 import sys
 
-app = Flask(__name__, static_folder='assets', static_url_path='/assets')
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # ── Rileva se stiamo girando in cloud ─────────────────────────────────────────
 # Render imposta RENDER=true; altri provider hanno variabili simili.
@@ -234,7 +234,7 @@ def _load_icon_image():
         from PIL import Image
         base = os.path.dirname(os.path.abspath(__file__))
         for name in ('icon.png', 'icon_32.png', 'icon_256.png', 'icon.ico'):
-            path = os.path.join(base, 'assets', name)
+            path = os.path.join(base, 'static', name)
             if os.path.exists(path):
                 img = Image.open(path).convert('RGBA')
                 img = img.resize((64, 64), Image.LANCZOS)
