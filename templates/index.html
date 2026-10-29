@@ -416,16 +416,27 @@
         <button class="mdClose" onclick="closeSettings()">✕</button>
       </div>
       <div class="settingsBody">
-        <!-- Toggle Dark Mode -->
-        <div class="setRow settings-toggle-row">
-          <div>
-            <div class="settings-toggle-title">Modalità Notturna</div>
-            <div class="settings-toggle-sub">Attiva il tema scuro riposante per la vista</div>
+        <!-- Sezione Tema (4 opzioni) -->
+        <div class="setRow">
+          <label class="lbl">Tema</label>
+          <div class="theme-selector-grid" id="themeSelectorGrid">
+            <button type="button" class="theme-option-card active" data-theme="light" onclick="setAppTheme('light')">
+              <span class="theme-preview theme-preview-light"></span>
+              <span class="theme-option-name">Chiaro</span>
+            </button>
+            <button type="button" class="theme-option-card" data-theme="blue" onclick="setAppTheme('blue')">
+              <span class="theme-preview theme-preview-blue"></span>
+              <span class="theme-option-name">Blu</span>
+            </button>
+            <button type="button" class="theme-option-card" data-theme="green" onclick="setAppTheme('green')">
+              <span class="theme-preview theme-preview-green"></span>
+              <span class="theme-option-name">Verde</span>
+            </button>
+            <button type="button" class="theme-option-card" data-theme="dark" onclick="setAppTheme('dark')">
+              <span class="theme-preview theme-preview-dark"></span>
+              <span class="theme-option-name">Dark Mode</span>
+            </button>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode(this.checked)">
-            <span class="slider"></span>
-          </label>
         </div>
 
         <div class="setRow">

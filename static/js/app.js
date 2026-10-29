@@ -106,6 +106,7 @@
     let currentLessonId = null;
     let activeFolderFilter = null;
     let selectedFolderColor = '#3B82F6';
+    const FOLDER_PALETTE = ['#3B82F6', '#22C55E', '#8B5CF6', '#F59E0B', '#EC4899', '#06B6D4'];
     let _lastTruncated = false;
     let _micStream = null;
 
@@ -144,10 +145,9 @@ document.addEventListener('visibilitychange', () => {
     document.getElementById('hdate').textContent =
       new Date().toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
 
-    // Chiudi i menu dropdown custom cliccando fuori
+    // Chiudi tutti i menu dropdown/popover cliccando fuori
     document.addEventListener('click', () => {
-      document.getElementById('folderAssignMenu')?.classList.remove('open');
-      document.getElementById('histDropdownMenu')?.classList.remove('open');
+      closeAllDropdowns();
     });
 
     // ══════════════════════════════════════════════════════════════
@@ -179,22 +179,41 @@ document.addEventListener('visibilitychange', () => {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  DARK MODE
+    //  SISTEMA DI TEMI (lai_theme: light, blue, green, dark)
     // ══════════════════════════════════════════════════════════════
+    const THEME_KEY = 'lai_theme';
     const DARK_KEY = 'lai_darkmode';
 
-    function loadDarkMode() {
-      const isDark = safeGet(DARK_KEY) === 'true';
-      document.body.classList.toggle('dark-mode', isDark);
-      const toggle = document.getElementById('darkModeToggle');
-      if (toggle) toggle.checked = isDark;
+    function loadAppTheme() {
+      let savedTheme = safeGet(THEME_KEY);
+      if (!savedTheme) {
+        savedTheme = safeGet(DARK_KEY) === 'true' ? 'dark' : 'light';
+      }
+      applyThemeClasses(savedTheme);
+    }
+
+    function applyThemeClasses(theme) {
+      const valid = ['light', 'blue', 'green', 'dark'].includes(theme) ? theme : 'light';
+      document.body.classList.remove('theme-light', 'theme-blue', 'theme-green', 'theme-dark', 'dark-mode');
+      document.body.classList.add('theme-' + valid);
+      if (valid === 'dark') {
+        document.body.classList.add('dark-mode');
+      }
+      document.querySelectorAll('#themeSelectorGrid .theme-option-card').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-theme') === valid);
+      });
+    }
+
+    function setAppTheme(theme) {
+      applyThemeClasses(theme);
+      safeSet(THEME_KEY, theme);
+      safeSet(DARK_KEY, theme === 'dark' ? 'true' : 'false');
+      renderFolders();
+      loadHistList();
     }
 
     function toggleDarkMode(enabled) {
-      document.body.classList.toggle('dark-mode', !!enabled);
-      safeSet(DARK_KEY, enabled ? 'true' : 'false');
-      renderFolders();
-      loadHistList();
+      setAppTheme(enabled ? 'dark' : 'light');
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -230,7 +249,7 @@ document.addEventListener('visibilitychange', () => {
       const container = document.getElementById('folders-container');
       if (!container) return;
       const folders = getFolders();
-      const isDark = document.body.classList.contains('dark-mode');
+      const isDark = document.body.classList.contains('dark-mode') || document.body.classList.contains('theme-dark');
 
       if (!folders.length) {
         container.innerHTML = `
@@ -249,6 +268,15 @@ document.addEventListener('visibilitychange', () => {
         const bgAlpha = isActive ? (isDark ? 0.28 : 0.22) : (isDark ? 0.16 : 0.12);
         const borderAlpha = isActive ? 0.85 : 0.45;
         const emoji = f.emoji || f.icon || '📁';
+
+        const swatchesHtml = FOLDER_PALETTE.map(c => `
+          <button type="button"
+                  class="popover-swatch ${c.toLowerCase() === col.toLowerCase() ? 'active' : ''}"
+                  style="background:${c}"
+                  onclick="event.stopPropagation(); updateFolderColor('${escHtml(f.id)}', '${c}')"
+                  title="Cambia colore"></button>
+        `).join('');
+
         return `
           <div class="folder-card ${isActive ? 'active' : ''}"
                style="background:${hexToRgba(col, bgAlpha)};border-color:${hexToRgba(col, borderAlpha)}"
@@ -260,12 +288,20 @@ document.addEventListener('visibilitychange', () => {
                 <div class="folder-count">${count} ${count === 1 ? 'lezione' : 'lezioni'}</div>
               </div>
             </div>
-            <button class="folder-del-btn" onclick="event.stopPropagation(); deleteFolder('${escHtml(f.id)}')" title="Elimina cartella">
-              <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
+            <div class="folder-card-actions">
+              <button type="button" class="folder-color-btn" onclick="event.stopPropagation(); toggleFolderColorPopover(event, '${escHtml(f.id)}')" title="Modifica colore cartella">
+                <span class="folder-color-dot" style="background:${escHtml(col)}"></span>
+              </button>
+              <button type="button" class="folder-del-btn" onclick="event.stopPropagation(); deleteFolder('${escHtml(f.id)}')" title="Elimina cartella">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="folder-color-popover" id="fcol-pop-${escHtml(f.id)}" onclick="event.stopPropagation()">
+              ${swatchesHtml}
+            </div>
           </div>
         `;
       }).join('');
@@ -278,6 +314,29 @@ document.addEventListener('visibilitychange', () => {
       `;
 
       container.innerHTML = cardsHtml + addCardHtml;
+    }
+
+    function toggleFolderColorPopover(e, folderId) {
+      e.stopPropagation();
+      const targetId = 'fcol-pop-' + folderId;
+      const pop = document.getElementById(targetId);
+      const wasOpen = pop?.classList.contains('open');
+      closeAllDropdowns();
+      if (pop && !wasOpen) {
+        pop.classList.add('open');
+      }
+    }
+
+    function updateFolderColor(folderId, newColor) {
+      const folders = getFolders();
+      const folder = folders.find(f => f.id === folderId);
+      if (!folder) return;
+      folder.color = newColor;
+      saveFolders(folders);
+      closeAllDropdowns();
+      renderFolders();
+      loadHistList();
+      toast('Colore cartella aggiornato!', 'ok');
     }
 
     function openFolderModal() {
@@ -319,6 +378,7 @@ document.addEventListener('visibilitychange', () => {
       saveFolders(folders);
       closeFolderModal();
       renderFolders();
+      loadHistList();
       toast('Cartella "' + name + '" creata!', 'ok');
     }
 
@@ -360,9 +420,9 @@ document.addEventListener('visibilitychange', () => {
     function toggleFolderAssignDropdown(e) {
       e.stopPropagation();
       const menu = document.getElementById('folderAssignMenu');
-      const histMenu = document.getElementById('histDropdownMenu');
-      histMenu?.classList.remove('open');
-      if (!menu) return;
+      const wasOpen = menu?.classList.contains('open');
+      closeAllDropdowns();
+      if (!menu || wasOpen) return;
 
       const folders = getFolders();
       if (!folders.length) {
@@ -390,12 +450,15 @@ document.addEventListener('visibilitychange', () => {
           `;
         }).join('');
       }
-      menu.classList.toggle('open');
+      menu.classList.add('open');
     }
 
     function closeAllDropdowns() {
       document.getElementById('folderAssignMenu')?.classList.remove('open');
       document.getElementById('histDropdownMenu')?.classList.remove('open');
+      document.querySelectorAll('.folder-color-popover.open, .lesson-quick-menu.open').forEach(el => {
+        el.classList.remove('open');
+      });
     }
 
     function assignCurrentLessonToFolder(folderId) {
@@ -406,20 +469,48 @@ document.addEventListener('visibilitychange', () => {
       if (!currentLessonId) {
         saveHist(true);
       }
+      assignLessonToFolder(currentLessonId, folderId);
+    }
+
+    // Assegna una qualsiasi lezione (anche dalla Dashboard tramite menu "⋮") a una cartella
+    function assignLessonToFolder(lessonId, folderId) {
+      if (!lessonId) return;
       const folders = getFolders();
-      const folder = folders.find(f => f.id === folderId);
-      if (!folder) return;
-      if (!Array.isArray(folder.lessonIds)) folder.lessonIds = [];
-      if (!folder.lessonIds.includes(currentLessonId)) {
-        folder.lessonIds.push(currentLessonId);
+      const target = folders.find(f => f.id === folderId);
+      if (!target) return;
+
+      // Rimuovi da altre cartelle per mantenere un'associazione chiara al colore, oppure toggle se già presente
+      const alreadyInTarget = Array.isArray(target.lessonIds) && target.lessonIds.includes(lessonId);
+      folders.forEach(f => {
+        if (!Array.isArray(f.lessonIds)) f.lessonIds = [];
+        f.lessonIds = f.lessonIds.filter(id => id !== lessonId);
+      });
+
+      if (!alreadyInTarget) {
+        target.lessonIds.push(lessonId);
         saveFolders(folders);
+        closeAllDropdowns();
         renderFolders();
         loadHistList();
-        toast(`Lezione salvata in "${folder.name}"!`, 'ok');
+        toast(`Lezione assegnata a "${target.name}"!`, 'ok');
       } else {
-        toast(`Lezione già presente in "${folder.name}".`, 'ok');
+        saveFolders(folders);
+        closeAllDropdowns();
+        renderFolders();
+        loadHistList();
+        toast(`Lezione rimossa da "${target.name}".`, 'ok');
       }
+    }
+
+    function toggleLessonQuickMenu(e, lessonId) {
+      e.stopPropagation();
+      const menuId = 'lqm-' + lessonId;
+      const menu = document.getElementById(menuId);
+      const wasOpen = menu?.classList.contains('open');
       closeAllDropdowns();
+      if (menu && !wasOpen) {
+        menu.classList.add('open');
+      }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -427,7 +518,7 @@ document.addEventListener('visibilitychange', () => {
     // ══════════════════════════════════════════════════════════════
     (function init() {
       try {
-        loadDarkMode();
+        loadAppTheme();
         const p = safeGet('lai_provider') || 'gemini';
         provider = p; document.getElementById('provSel').value = p;
         const k = safeGet('lai_key_' + p) || '';
@@ -967,7 +1058,6 @@ document.addEventListener('visibilitychange', () => {
       }
     }
 
-    // Trova la cartella associata a una lezione (se presente)
     function findFolderForLesson(lessonId) {
       if (!lessonId) return null;
       const folders = getFolders();
@@ -982,13 +1072,14 @@ document.addEventListener('visibilitychange', () => {
 
     function loadHistList() {
       const hist = getHist();
+      const folders = getFolders();
       const container = document.getElementById('history-list-container');
-      const isDark = document.body.classList.contains('dark-mode');
+      const isDark = document.body.classList.contains('dark-mode') || document.body.classList.contains('theme-dark');
 
       if (container) {
         let filtered = hist.map((s, originalIdx) => ({ ...s, originalIdx }));
         if (activeFolderFilter) {
-          const folder = getFolders().find(f => f.id === activeFolderFilter);
+          const folder = folders.find(f => f.id === activeFolderFilter);
           const allowedIds = new Set(folder?.lessonIds || []);
           filtered = filtered.filter(s => allowedIds.has(s.id));
         } else {
@@ -1016,12 +1107,45 @@ document.addEventListener('visibilitychange', () => {
               ? `<span style="font-size:0.75rem;margin-right:4px">${escHtml(folder.emoji || folder.icon || '📁')}</span>`
               : '';
 
+            let quickMenuItems = '';
+            if (!folders.length) {
+              quickMenuItems = `
+                <div class="dropdown-empty">
+                  Nessuna cartella.<br>
+                  <button type="button" class="btn-text-action" style="margin-top:4px" onclick="event.stopPropagation(); closeAllDropdowns(); openFolderModal()">+ Crea cartella</button>
+                </div>
+              `;
+            } else {
+              quickMenuItems = `<div class="lesson-quick-menu-head">Assegna a cartella</div>` + folders.map(f => {
+                const isAssigned = Array.isArray(f.lessonIds) && f.lessonIds.includes(s.id);
+                const fCol = f.color || '#3B82F6';
+                const fEmoji = f.emoji || f.icon || '📁';
+                return `
+                  <div class="dropdown-item" onclick="event.stopPropagation(); assignLessonToFolder('${escHtml(s.id)}', '${escHtml(f.id)}')">
+                    <div class="dropdown-item-info">
+                      <div class="dropdown-item-title">
+                        <span style="width:9px;height:9px;border-radius:50%;background:${escHtml(fCol)};display:inline-block;flex-shrink:0"></span>
+                        <span>${escHtml(fEmoji)} ${escHtml(f.name)}</span>
+                      </div>
+                    </div>
+                    ${isAssigned ? '<span style="color:var(--accent);font-weight:700;font-size:0.78rem">✓</span>' : ''}
+                  </div>
+                `;
+              }).join('');
+            }
+
             return `
               <div class="lesson-card" style="${cardStyle}" onclick="loadHist(${s.originalIdx})">
                 <div>
                   <div class="lesson-card-top">
                     <span class="lesson-badge" style="${badgeStyle}">${folderTag}${escHtml(s.subject || 'Lezione')}</span>
-                    <span class="lesson-date">${escHtml(s.date || '')}</span>
+                    <div class="lesson-card-top-right">
+                      <span class="lesson-date">${escHtml(s.date || '')}</span>
+                      <button type="button" class="lesson-more-btn" onclick="toggleLessonQuickMenu(event, '${escHtml(s.id)}')" title="Salva in cartella">⋮</button>
+                      <div class="lesson-quick-menu" id="lqm-${escHtml(s.id)}" onclick="event.stopPropagation()">
+                        ${quickMenuItems}
+                      </div>
+                    </div>
                   </div>
                   <h3 style="margin-top:12px">${escHtml(s.title || 'Senza titolo')}</h3>
                   <p style="margin-top:6px">${escHtml((s.data?.summary?.overview || '').slice(0, 110))}${(s.data?.summary?.overview || '').length > 110 ? '...' : ''}</p>
@@ -1078,9 +1202,12 @@ document.addEventListener('visibilitychange', () => {
 
     function toggleHistDropdown(e) {
       e.stopPropagation();
-      document.getElementById('folderAssignMenu')?.classList.remove('open');
       const menu = document.getElementById('histDropdownMenu');
-      menu?.classList.toggle('open');
+      const wasOpen = menu?.classList.contains('open');
+      closeAllDropdowns();
+      if (menu && !wasOpen) {
+        menu.classList.add('open');
+      }
     }
 
     function saveHist(silent) {
@@ -2165,7 +2292,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  IMPOSTAZIONI — Gestione preset del prompt
+    //  IMPOSTAZIONI — Gestione preset del prompt e Tema
     // ══════════════════════════════════════════════════════════════
     const PRESET_LABELS = {
       informatica: 'Informatica / Ingegneria / Scienze informatiche',
@@ -2188,8 +2315,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
       sel.value = activePreset;
       document.getElementById('presetEdit').value = getPanel();
-      const dmToggle = document.getElementById('darkModeToggle');
-      if (dmToggle) dmToggle.checked = document.body.classList.contains('dark-mode');
+      loadAppTheme();
       document.getElementById('settingsOv').classList.add('on');
     }
     function closeSettings() {
@@ -2219,7 +2345,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         customPanel = val;
       }
       safeSet('lai_preset', activePreset);
-      toast('✓ Preset "' + activePreset + '" salvato', 'ok');
+      toast('✓ Impostazioni salvate', 'ok');
       closeSettings();
     }
 
