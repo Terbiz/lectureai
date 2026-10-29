@@ -103,24 +103,25 @@
     let timerSec = 0, timerInt = null, mathDet = false;
     let uploadedFiles = [];
     let apiKey = '', provider = 'gemini', lastData = null;
+    let currentLessonId = null;
+    let activeFolderFilter = null;
     let _lastTruncated = false; // true se una o più risposte AI sono arrivate tagliate per limite di token
     let _micStream = null;
 
     // Gestione sospensione pagina (iPad/iPhone)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    // La pagina è tornata visibile
     if (isRec && recObj) {
       console.log('[SR] Pagina visibile, tentativo di riavvio...');
       try {
-        recObj.stop(); // Ferma eventuali sessioni fantasma
+        recObj.stop();
       } catch(e) {}
       
       setTimeout(() => {
         if (isRec) {
           try {
             recObj.start();
-            toast('🔄 Trascrizione riavviata automaticamente', 'ok');
+            toast('Trascrizione riavviata automaticamente', 'ok');
           } catch(e) {
             console.warn('[SR] Riavvio fallito dopo visibilitychange:', e);
           }
@@ -128,7 +129,6 @@ document.addEventListener('visibilitychange', () => {
       }, 500);
     }
   } else {
-    // La pagina sta andando in background - potremmo voler salvare lo stato
     if (isRec) {
       console.log('[SR] Pagina in background, la trascrizione potrebbe fermarsi');
     }
@@ -138,22 +138,21 @@ document.addEventListener('visibilitychange', () => {
     function getDocFiles() { return uploadedFiles.filter(f => !f.isAudio); }
 
     // Ping keepalive: avvisa Flask che il browser è ancora aperto
-    // Flask si chiude automaticamente dopo 12s senza ping
     setInterval(() => { fetch('/api/ping', { method: 'POST' }).catch(() => { }); }, 5000);
 
     document.getElementById('hdate').textContent =
       new Date().toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
 
-    
-    
+    // Chiudi i menu dropdown custom cliccando fuori
+    document.addEventListener('click', () => {
+      document.getElementById('folderAssignMenu')?.classList.remove('open');
+      document.getElementById('histDropdownMenu')?.classList.remove('open');
+    });
+
     // ══════════════════════════════════════════════════════════════
     //  SAFE STORAGE — resiste a Safari ITP che blocca localStorage
     // ══════════════════════════════════════════════════════════════
-    // Safari su iPad/iPhone può bloccare localStorage per "Tracking Prevention".
-    // Questi wrapper non lanciano mai eccezioni: se lo storage è bloccato,
-    // restituiscono null / ignorano la scrittura. La app continua a funzionare
-    // (senza salvare nulla) invece di rompersi completamente.
-        let _storageBlocked = false;
+    let _storageBlocked = false;
     function safeGet(k) {
       try { return localStorage.getItem(k); }
       catch (e) {
@@ -177,13 +176,222 @@ document.addEventListener('visibilitychange', () => {
       try { localStorage.removeItem(k); }
       catch (e) { /* silenzioso */ }
     }
-    
+
+    // ══════════════════════════════════════════════════════════════
+    //  DARK MODE
+    // ══════════════════════════════════════════════════════════════
+    const DARK_KEY = 'lai_darkmode';
+
+    function loadDarkMode() {
+      const isDark = safeGet(DARK_KEY) === 'true';
+      document.body.classList.toggle('dark-mode', isDark);
+      const toggle = document.getElementById('darkModeToggle');
+      if (toggle) toggle.checked = isDark;
+    }
+
+    function toggleDarkMode(enabled) {
+      document.body.classList.toggle('dark-mode', !!enabled);
+      safeSet(DARK_KEY, enabled ? 'true' : 'false');
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  CARTELLE (lai_folders)
+    // ══════════════════════════════════════════════════════════════
+    const FOLDERS_KEY = 'lai_folders';
+
+    function getFolders() {
+      try { return JSON.parse(safeGet(FOLDERS_KEY) || '[]'); } catch { return []; }
+    }
+
+    function saveFolders(folders) {
+      safeSet(FOLDERS_KEY, JSON.stringify(folders));
+    }
+
+    function renderFolders() {
+      const container = document.getElementById('folders-container');
+      if (!container) return;
+      const folders = getFolders();
+
+      if (!folders.length) {
+        container.innerHTML = `
+          <div class="folder-empty-card" onclick="openFolderModal()">
+            <div class="folder-empty-plus">+</div>
+            <div class="folder-empty-label">Crea la tua prima cartella</div>
+          </div>
+        `;
+        return;
+      }
+
+      const cardsHtml = folders.map(f => {
+        const count = Array.isArray(f.lessonIds) ? f.lessonIds.length : 0;
+        const isActive = activeFolderFilter === f.id;
+        return `
+          <div class="folder-card ${isActive ? 'active' : ''}" onclick="filterByFolder('${escHtml(f.id)}')">
+            <div class="folder-card-main">
+              <div class="folder-ico">${escHtml(f.icon || '📁')}</div>
+              <div style="min-width:0">
+                <div class="folder-name">${escHtml(f.name)}</div>
+                <div class="folder-count">${count} ${count === 1 ? 'lezione' : 'lezioni'}</div>
+              </div>
+            </div>
+            <button class="folder-del-btn" onclick="event.stopPropagation(); deleteFolder('${escHtml(f.id)}')" title="Elimina cartella">
+              <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      const addCardHtml = `
+        <div class="folder-empty-card" onclick="openFolderModal()">
+          <div class="folder-empty-plus">+</div>
+          <div class="folder-empty-label">Nuova cartella</div>
+        </div>
+      `;
+
+      container.innerHTML = cardsHtml + addCardHtml;
+    }
+
+    function openFolderModal() {
+      const nameIn = document.getElementById('folderNameInput');
+      const iconIn = document.getElementById('folderIconInput');
+      if (nameIn) nameIn.value = '';
+      if (iconIn) iconIn.value = '📁';
+      document.getElementById('folderModal')?.classList.add('on');
+      setTimeout(() => nameIn?.focus(), 50);
+    }
+
+    function closeFolderModal() {
+      document.getElementById('folderModal')?.classList.remove('on');
+    }
+
+    function selectFolderEmoji(emoji) {
+      const iconIn = document.getElementById('folderIconInput');
+      if (iconIn) iconIn.value = emoji;
+    }
+
+    function confirmCreateFolder() {
+      const name = (document.getElementById('folderNameInput')?.value || '').trim();
+      const icon = (document.getElementById('folderIconInput')?.value || '📁').trim() || '📁';
+      if (!name) {
+        toast('Inserisci un nome per la cartella.', 'err');
+        return;
+      }
+      const folders = getFolders();
+      folders.push({
+        id: 'fld_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name,
+        icon,
+        lessonIds: []
+      });
+      saveFolders(folders);
+      closeFolderModal();
+      renderFolders();
+      toast('Cartella "' + name + '" creata!', 'ok');
+    }
+
+    function deleteFolder(folderId) {
+      const folders = getFolders().filter(f => f.id !== folderId);
+      saveFolders(folders);
+      if (activeFolderFilter === folderId) {
+        activeFolderFilter = null;
+        const clearBtn = document.getElementById('clearFolderFilterBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
+        const lbl = document.getElementById('history-section-label');
+        if (lbl) lbl.textContent = 'Cronologia lezioni';
+      }
+      renderFolders();
+      loadHistList();
+      toast('Cartella eliminata.', 'ok');
+    }
+
+    function filterByFolder(folderId) {
+      if (!folderId || activeFolderFilter === folderId) {
+        activeFolderFilter = null;
+      } else {
+        activeFolderFilter = folderId;
+      }
+      const clearBtn = document.getElementById('clearFolderFilterBtn');
+      const lbl = document.getElementById('history-section-label');
+      if (activeFolderFilter) {
+        const f = getFolders().find(x => x.id === activeFolderFilter);
+        if (clearBtn) clearBtn.style.display = 'inline-block';
+        if (lbl) lbl.textContent = f ? `Lezioni in "${f.name}"` : 'Cronologia lezioni';
+      } else {
+        if (clearBtn) clearBtn.style.display = 'none';
+        if (lbl) lbl.textContent = 'Cronologia lezioni';
+      }
+      renderFolders();
+      loadHistList();
+    }
+
+    function toggleFolderAssignDropdown(e) {
+      e.stopPropagation();
+      const menu = document.getElementById('folderAssignMenu');
+      const histMenu = document.getElementById('histDropdownMenu');
+      histMenu?.classList.remove('open');
+      if (!menu) return;
+
+      const folders = getFolders();
+      if (!folders.length) {
+        menu.innerHTML = `
+          <div class="dropdown-empty">
+            Nessuna cartella creata.<br>
+            <button class="btn-text-action" style="margin-top:6px" onclick="closeAllDropdowns(); openFolderModal()">+ Crea cartella</button>
+          </div>
+        `;
+      } else {
+        menu.innerHTML = folders.map(f => {
+          const isSaved = currentLessonId && Array.isArray(f.lessonIds) && f.lessonIds.includes(currentLessonId);
+          return `
+            <div class="dropdown-item" onclick="assignCurrentLessonToFolder('${escHtml(f.id)}')">
+              <div class="dropdown-item-info">
+                <div class="dropdown-item-title">${escHtml(f.icon || '📁')} ${escHtml(f.name)}</div>
+              </div>
+              ${isSaved ? '<span style="color:var(--accent);font-weight:700;font-size:0.78rem">✓</span>' : ''}
+            </div>
+          `;
+        }).join('');
+      }
+      menu.classList.toggle('open');
+    }
+
+    function closeAllDropdowns() {
+      document.getElementById('folderAssignMenu')?.classList.remove('open');
+      document.getElementById('histDropdownMenu')?.classList.remove('open');
+    }
+
+    function assignCurrentLessonToFolder(folderId) {
+      if (!lastData) {
+        toast('Nessuna lezione attiva da salvare.', 'err');
+        return;
+      }
+      if (!currentLessonId) {
+        saveHist(true);
+      }
+      const folders = getFolders();
+      const folder = folders.find(f => f.id === folderId);
+      if (!folder) return;
+      if (!Array.isArray(folder.lessonIds)) folder.lessonIds = [];
+      if (!folder.lessonIds.includes(currentLessonId)) {
+        folder.lessonIds.push(currentLessonId);
+        saveFolders(folders);
+        renderFolders();
+        toast(`Lezione salvata in "${folder.name}"!`, 'ok');
+      } else {
+        toast(`Lezione già presente in "${folder.name}".`, 'ok');
+      }
+      closeAllDropdowns();
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  INIT
     // ══════════════════════════════════════════════════════════════
-
-        (function init() {
+    (function init() {
       try {
+        loadDarkMode();
         const p = safeGet('lai_provider') || 'gemini';
         provider = p; document.getElementById('provSel').value = p;
         const k = safeGet('lai_key_' + p) || '';
@@ -195,6 +403,7 @@ document.addEventListener('visibilitychange', () => {
         provider === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
           : provider === 'anthropic' ? 'sk-ant-... (console.anthropic.com)'
             : 'sk-... (platform.deepseek.com)';
+      try { renderFolders(); } catch (e) { console.warn('[LectureAI] renderFolders fallito:', e); }
       try { loadHistList(); } catch (e) { console.warn('[LectureAI] loadHistList fallito:', e); }
     })();
 
@@ -245,14 +454,12 @@ document.addEventListener('visibilitychange', () => {
     function dzDrop(e) { e.preventDefault(); dzLeave(); Array.from(e.dataTransfer.files).forEach(f => loadFile(f)); }
     function onFile(e) { Array.from(e.target.files).forEach(f => loadFile(f)); e.target.value = ''; }
 
-        async function loadFile(file) {
+    async function loadFile(file) {
       if (uploadedFiles.find(f => f.name === file.name)) { toast('⚠ "' + file.name + '" già caricato', 'err'); return; }
       
-      // Rilevamento file audio robusto (Safari iOS bug: file.type può essere vuoto)
       let fileType = file.type || '';
       const fileName = (file.name || '').toLowerCase();
       
-      // Se il MIME type è vuoto o generico, deduciamo il tipo dall'estensione
       if (!fileType || fileType === 'application/octet-stream') {
         if (/\.(m4a|mp3|wav|aac|ogg|webm|mp4)$/i.test(fileName)) {
           fileType = 'audio/' + fileName.split('.').pop();
@@ -275,7 +482,7 @@ document.addEventListener('visibilitychange', () => {
         const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
         let txt, pages;
         if (isPdf) {
-          toast('📄 Estrazione testo da "' + file.name + '"...', 'ok');
+          toast('Estrazione testo da "' + file.name + '"...', 'ok');
           const buf = await file.arrayBuffer();
           const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
           pages = pdf.numPages;
@@ -304,23 +511,24 @@ document.addEventListener('visibilitychange', () => {
       } catch (err) { toast('Errore: ' + err.message, 'err'); }
     }
 
+    const SVG_DOC_ICON = '<svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+    const SVG_AUDIO_ICON = '<svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
+
     function renderFileList() {
       const list = document.getElementById('fileList');
       const dz = document.getElementById('dz');
       if (!uploadedFiles.length) {
         list.innerHTML = '';
         dz.classList.remove('has-files');
-        document.getElementById('dzIco').textContent = '📄';
         document.getElementById('dzTxt').innerHTML = 'Trascina qui i tuoi file<br><small>PDF · TXT · MD · Audio</small>';
         return;
       }
       dz.classList.add('has-files');
-      document.getElementById('dzIco').textContent = '📄';
       document.getElementById('dzTxt').innerHTML = uploadedFiles.length + ' file caricato' + (uploadedFiles.length > 1 ? 'i' : '')
         + '<br><small>trascina altri o clicca per aggiungere</small>';
-            list.innerHTML = uploadedFiles.map((f, i) =>
+      list.innerHTML = uploadedFiles.map((f, i) =>
         '<div class="file-item">'
-        + '<span class="fi-ico">' + (f.isAudio ? '🎵' : '📄') + '</span>'
+        + '<span class="fi-ico">' + (f.isAudio ? SVG_AUDIO_ICON : SVG_DOC_ICON) + '</span>'
         + '<span class="fi-name" title="' + escHtml(f.name) + '">' + escHtml(f.name) + '</span>'
         + '<span class="fi-info">' + f.info + '</span>'
         + '<button class="fi-rm" onclick="rmFile(' + i + ')" title="Rimuovi">✕</button>'
@@ -334,9 +542,9 @@ document.addEventListener('visibilitychange', () => {
       const hasPdf = uploadedFiles.length > 0;
       const b = document.getElementById('genBtn');
       b.disabled = !(hasTr || hasPdf);
-      if (hasTr && hasPdf) b.textContent = '✨ Genera Appunti Integrati';
-      else if (hasPdf) b.textContent = '✨ Genera Appunti dal PDF';
-      else b.textContent = '✨ Genera Appunti';
+      if (hasTr && hasPdf) b.textContent = 'Genera Appunti Integrati';
+      else if (hasPdf) b.textContent = 'Genera Appunti dal PDF';
+      else b.textContent = 'Genera Appunti';
       const words = finalTr.trim().split(/\s+/).filter(Boolean).length;
       const badge = document.getElementById('tkBadge');
       if (words > 9000) {
@@ -350,80 +558,69 @@ document.addEventListener('visibilitychange', () => {
 
     // ══════════════════════════════════════════════════════════════
     //  SPEECH RECOGNITION
-    //  Permesso microfono: getUserMedia UNA SOLA VOLTA, stream tenuto aperto.
-    //  Chrome su localhost memorizza il permesso permanentemente.
     // ══════════════════════════════════════════════════════════════
-    // Quando l'utente cambia lingua, ricrea l'oggetto SpeechRecognition
-// (altrimenti la nuova lingua non viene applicata fino al reload)
-document.addEventListener('DOMContentLoaded', () => {
-  const sel = document.getElementById('langSel');
-  if (sel) {
-    sel.addEventListener('change', () => {
-      if (isRec) {
-        // Se sta registrando, applica al prossimo riavvio (non interrompere ora)
-        console.log('[SR] Lingua cambiata durante la registrazione:', sel.value);
-      }
-      // Ricrea l'oggetto: la nuova lingua sarà usata al prossimo start()
-      try {
-        if (recObj) {
-          try { recObj.stop(); } catch(_) {}
-          try { recObj.onend = null; recObj.onerror = null; recObj.onresult = null; } catch(_) {}
-        }
-        recObj = null;
-        buildRecObj();
-        console.log('[SR] Oggetto ricreato con lingua:', sel.value);
-      } catch (e) {
-        console.warn('[SR] Errore ricreando oggetto:', e);
+    document.addEventListener('DOMContentLoaded', () => {
+      const sel = document.getElementById('langSel');
+      if (sel) {
+        sel.addEventListener('change', () => {
+          if (isRec) {
+            console.log('[SR] Lingua cambiata durante la registrazione:', sel.value);
+          }
+          try {
+            if (recObj) {
+              try { recObj.stop(); } catch(_) {}
+              try { recObj.onend = null; recObj.onerror = null; recObj.onresult = null; } catch(_) {}
+            }
+            recObj = null;
+            buildRecObj();
+            console.log('[SR] Oggetto ricreato con lingua:', sel.value);
+          } catch (e) {
+            console.warn('[SR] Errore ricreando oggetto:', e);
+          }
+        });
       }
     });
-  }
-});
     function toggleRec() { isRec ? pauseRec() : startRec(); }
 
-        async function startRec() {
-      // Controllo supporto browser
+    async function startRec() {
       const hasSR = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
       if (!hasSR) {
-        toast('❌ Usa Chrome, Edge o Safari — questo browser non supporta la registrazione vocale.', 'err');
+        toast('Usa Chrome, Edge o Safari — questo browser non supporta la registrazione vocale.', 'err');
         return;
       }
-      // Controllo URL: SR funziona solo su localhost o HTTPS
       const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
       if (!isSecure) {
-        toast('❌ Apri il sito su http://localhost:5000 (non su 127.0.0.1).', 'err');
+        toast('Apri il sito su http://localhost:5000 (non su 127.0.0.1).', 'err');
         return;
       }
       if (isRec) return;
 
-      // Avviso specifico per Safari/iOS — la trascrizione può interrompersi
       const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPad moderno
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       if (isSafari && isIOS) {
-        toast('💡 Su Safari/iPad: tieni la pagina in primo piano. Se esci dal browser la trascrizione potrebbe interrompersi.', 'ok');
+        toast('Su Safari/iPad: tieni la pagina in primo piano. Se esci dal browser la trascrizione potrebbe interrompersi.', 'ok');
       }
 
-      // Chiedi il permesso microfono UNA SOLA VOLTA tenendo lo stream aperto
       if (!_micStream) {
         try {
           _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (err) {
           if (err.name === 'NotAllowedError')
-            toast('🎤 Permesso microfono negato. Clicca il lucchetto in alto a sinistra → Microfono → Consenti.', 'err');
+            toast('Permesso microfono negato. Clicca il lucchetto in alto a sinistra → Microfono → Consenti.', 'err');
           else if (err.name === 'NotFoundError')
-            toast('🎤 Nessun microfono trovato. Collega un microfono e riprova.', 'err');
+            toast('Nessun microfono trovato. Collega un microfono e riprova.', 'err');
           else
-            toast('🎤 Errore microfono: ' + err.message, 'err');
+            toast('Errore microfono: ' + err.message, 'err');
           return;
         }
       }
 
-      // Rileva disconnessione hardware/permessi del microfono durante la sessione
       const track = _micStream.getAudioTracks()[0];
       if (track && !track.onended) {
         track.onended = () => {
           if (isRec) {
-            toast('🎤 Il microfono si è disconnesso. Ricollegalo e premi di nuovo Registra.', 'err');
+            toast('Il microfono si è disconnesso. Ricollegalo e premi di nuovo Registra.', 'err');
             _micStream = null;
             stopRec();
           }
@@ -461,9 +658,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (hasMath(t)) { mathDet = true; document.getElementById('mathBadge').classList.add('on'); }
           } else interimTr += t;
         }
-        // NB: se l'utente ha modificato il box, finalTr è già sincronizzato da onTboxEdit.
-        // Qui aggiungiamo solo il nuovo testo finalizzato: NON ricostruiamo il DOM,
-        // così le modifiche manuali e la posizione del cursore restano intatte.
         if (newFinal) {
           finalTr += newFinal;
           appendFinalToTbox(newFinal);
@@ -481,22 +675,18 @@ document.addEventListener('DOMContentLoaded', () => {
           document.getElementById('stopBtn').style.display = 'none';
           document.getElementById('tmr').classList.remove('on');
           stopTimer();
-          toast('🎤 Permesso revocato. Aggiorna la pagina e riprova.', 'err');
+          toast('Permesso revocato. Aggiorna la pagina e riprova.', 'err');
         } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
           console.warn('[SR]', e.error);
-          // errori come 'network' o 'audio-capture': non blocchiamo, ci pensa onend+watchdog a far ripartire
         }
       };
 
-            // Rileva se siamo su Safari/iOS per adattare il ritardo di riavvio
       const isSafariIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-            recObj.onend = () => {
+      recObj.onend = () => {
         if (!isRec) return;
 
-        // ⚠️ FIX: committa l'interim PRIMA di riavviare, altrimenti le ultime
-        // parole pronunciate vengono perse (Safari in particolare le scarta).
         if (interimTr && interimTr.trim()) {
           const pending = interimTr.trim() + ' ';
           finalTr += pending;
@@ -532,11 +722,9 @@ document.addEventListener('DOMContentLoaded', () => {
       _srWatchdog = setInterval(() => {
         if (!isRec) return;
         const silentFor = Date.now() - _lastSRActivity;
-        // Oltre 25s senza alcun evento (nemmeno interim) con registrazione attiva:
-        // quasi certamente il riconoscimento si è bloccato silenziosamente. Forziamo un riavvio pulito.
         if (silentFor > 25000) {
           _lastSRActivity = Date.now();
-          toast('🎤 Trascrizione bloccata, riavvio automatico in corso...', 'ok');
+          toast('Trascrizione bloccata, riavvio automatico in corso...', 'ok');
           try { recObj.stop(); } catch (_) { }
           try { recObj.onend = null; recObj.onerror = null; recObj.onresult = null; } catch (_) { }
           buildRecObj();
@@ -559,7 +747,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopRec() {
-      // Committa l'eventuale interim rimasto (parole riconosciute ma non ancora finalizzate)
       if (interimTr && interimTr.trim() && !document.getElementById('tbox').querySelector('.tbox-ph')) {
         finalTr += interimTr + ' ';
         interimTr = '';
@@ -575,8 +762,6 @@ document.addEventListener('DOMContentLoaded', () => {
       stopTimer(); chkBtn();
     }
 
-    // Ricostruzione completa del box (usata solo al load cronologia / cambio modalità).
-    // Durante la registrazione NON viene più chiamata: si usa appendFinalToTbox.
     function renderTbox() {
       if (tmode !== 'live') return;
       const tbox = document.getElementById('tbox');
@@ -601,29 +786,22 @@ document.addEventListener('DOMContentLoaded', () => {
       tbox.scrollTop = tbox.scrollHeight;
     }
 
-    // ── Editing live della trascrizione ───────────────────────────
-    // L'utente può cliccare dentro #tbox e correggere qualsiasi parola
-    // anche mentre la registrazione è in corso: le correzioni finiscono
-    // in finalTr e NON vengono sovrascritte dai nuovi risultati SR.
-
     function onTboxEdit() {
       if (tmode !== 'live') return;
       const tbox = document.getElementById('tbox');
       const ph = tbox.querySelector('.tbox-ph');
-      if (ph) ph.remove(); // l'utente ha iniziato a scrivere: via il placeholder
+      if (ph) ph.remove();
       finalTr = extractFinalText(tbox);
       if (hasMath(finalTr)) { mathDet = true; document.getElementById('mathBadge').classList.add('on'); }
       chkBtn();
     }
 
-    // Estrae SOLO il testo editabile (esclude il placeholder e l'interim in corso)
     function extractFinalText(tbox) {
       const clone = tbox.cloneNode(true);
       clone.querySelectorAll('.interim, .tbox-ph').forEach(n => n.remove());
       return clone.textContent;
     }
 
-    // Aggiunge in coda al box il nuovo testo finalizzato mantenendo l'interim span in fondo
     function appendFinalToTbox(text) {
       if (tmode !== 'live') return;
       const tbox = document.getElementById('tbox');
@@ -637,7 +815,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (atBottom) tbox.scrollTop = tbox.scrollHeight;
     }
 
-    // Aggiorna solo la parte "interim" (non ancora finalizzata) in fondo al box
     function updateInterimTbox(text) {
       if (tmode !== 'live') return;
       const tbox = document.getElementById('tbox');
@@ -667,44 +844,38 @@ document.addEventListener('DOMContentLoaded', () => {
       if (m === 'live') renderTbox();
       chkBtn();
     }
-    // Copia negli appunti la trascrizione attiva (live o testo incollato)
-function copyTranscript() {
-  let text = '';
-  let label = '';
 
-  if (tmode === 'live') {
-    // Unisce final + interim (se c'è ancora qualcosa in corso)
-    text = (finalTr + (interimTr ? ' ' + interimTr : '')).trim();
-    label = 'trascrizione live';
-  } else {
-    text = (pastedTr || '').trim();
-    label = 'testo';
-  }
-
-  if (!text) { toast('Niente da copiare: la trascrizione è vuota.', 'err'); return; }
-
-  navigator.clipboard.writeText(text)
-    .then(() => {
-      const words = text.split(/\s+/).filter(Boolean).length;
-      toast(`✓ Copiato (${words.toLocaleString('it')} parole)`, 'ok');
-    })
-    .catch(err => {
-      // Fallback per browser che richiedono HTTPS o permessi espliciti
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand('copy');
-        toast(`✓ Copiato (fallback)`, 'ok');
-      } catch (_) {
-        toast('Impossibile copiare: ' + err.message, 'err');
+    function copyTranscript() {
+      let text = '';
+      if (tmode === 'live') {
+        text = (finalTr + (interimTr ? ' ' + interimTr : '')).trim();
+      } else {
+        text = (pastedTr || '').trim();
       }
-      document.body.removeChild(ta);
-    });
-}
+
+      if (!text) { toast('Niente da copiare: la trascrizione è vuota.', 'err'); return; }
+
+      navigator.clipboard.writeText(text)
+        .then(() => {
+          const words = text.split(/\s+/).filter(Boolean).length;
+          toast(`✓ Copiato (${words.toLocaleString('it')} parole)`, 'ok');
+        })
+        .catch(err => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try {
+            document.execCommand('copy');
+            toast(`✓ Copiato`, 'ok');
+          } catch (_) {
+            toast('Impossibile copiare: ' + err.message, 'err');
+          }
+          document.body.removeChild(ta);
+        });
+    }
 
     function onPasteInput() {
       pastedTr = document.getElementById('tpaste').value;
@@ -732,7 +903,7 @@ function copyTranscript() {
         timerSec++;
         const m = String(Math.floor(timerSec / 60)).padStart(2, '0');
         const s = String(timerSec % 60).padStart(2, '0');
-        document.getElementById('tmr').textContent = '⏱ ' + m + ':' + s;
+        document.getElementById('tmr').textContent = m + ':' + s;
         if (timerSec % 30 === 0) chkBtn();
       }, 1000);
     }
@@ -743,34 +914,95 @@ function copyTranscript() {
     // ══════════════════════════════════════════════════════════════
     const HIST_KEY = 'lai_history';
 
+    function getHist() {
+      try {
+        const arr = JSON.parse(safeGet(HIST_KEY) || '[]');
+        // Assicura che ogni voce abbia un id univoco
+        let mutated = false;
+        arr.forEach((item, idx) => {
+          if (!item.id) {
+            item.id = 'les_' + idx + '_' + Date.now();
+            mutated = true;
+          }
+        });
+        if (mutated) safeSet(HIST_KEY, JSON.stringify(arr));
+        return arr;
+      } catch {
+        return [];
+      }
+    }
+
     function loadHistList() {
       const hist = getHist();
       const container = document.getElementById('history-list-container');
       if (container) {
-        if (!hist.length) {
-          container.innerHTML = '';
+        let filtered = hist.map((s, originalIdx) => ({ ...s, originalIdx }));
+        if (activeFolderFilter) {
+          const folder = getFolders().find(f => f.id === activeFolderFilter);
+          const allowedIds = new Set(folder?.lessonIds || []);
+          filtered = filtered.filter(s => allowedIds.has(s.id));
         } else {
-          container.innerHTML = hist.map((s, i) => `
-            <div class="lesson-card" onclick="loadHist(${i})">
+          // Mostra solo le ultime 6 lezioni generate
+          filtered = filtered.slice(0, 6);
+        }
+
+        if (!filtered.length) {
+          container.innerHTML = `
+            <div class="dash-empty-history">
+              ${activeFolderFilter ? 'Nessuna lezione salvata in questa cartella.' : 'Nessuna lezione generata di recente. Premi "+ Nuova Lezione" per iniziare.'}
+            </div>
+          `;
+        } else {
+          container.innerHTML = filtered.map(s => `
+            <div class="lesson-card" onclick="loadHist(${s.originalIdx})">
               <div>
                 <div class="lesson-card-top">
                   <span class="lesson-badge">${escHtml(s.subject || 'Lezione')}</span>
                   <span class="lesson-date">${escHtml(s.date || '')}</span>
                 </div>
-                <h3 style="margin-top:10px">${escHtml(s.title || 'Senza titolo')}</h3>
+                <h3 style="margin-top:12px">${escHtml(s.title || 'Senza titolo')}</h3>
                 <p style="margin-top:6px">${escHtml((s.data?.summary?.overview || '').slice(0, 110))}${(s.data?.summary?.overview || '').length > 110 ? '...' : ''}</p>
               </div>
               <div class="lesson-card-foot">
                 <span>Apri appunti →</span>
-                <button class="hist-btn" onclick="event.stopPropagation(); deleteHist(${i})" title="Elimina sessione">🗑</button>
+                <button class="hist-btn" onclick="event.stopPropagation(); deleteHist(${s.originalIdx})" title="Elimina sessione">
+                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
               </div>
             </div>
           `).join('');
         }
       }
+
+      // Popola il menu custom "Cronologia appunti" nella vista Notes
+      const histMenu = document.getElementById('histDropdownMenu');
+      if (histMenu) {
+        if (!hist.length) {
+          histMenu.innerHTML = '<div class="dropdown-empty">Nessun appunto salvato</div>';
+        } else {
+          histMenu.innerHTML = hist.map((s, i) => `
+            <div class="dropdown-item" onclick="loadHist(${i})">
+              <div class="dropdown-item-info">
+                <div class="dropdown-item-title">${escHtml(s.title || 'Senza titolo')}</div>
+                <div class="dropdown-item-sub">${escHtml(s.date || '')} · ${escHtml(s.subject || 'Lezione')}</div>
+              </div>
+              <button class="folder-del-btn" onclick="event.stopPropagation(); deleteHist(${i})" title="Elimina">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+              </button>
+            </div>
+          `).join('');
+        }
+      }
+
       const sel = document.getElementById('histSel');
       if (sel) {
-        sel.innerHTML = '<option value="">📋 Cronologia sessioni...</option>';
+        sel.innerHTML = '<option value="">Cronologia appunti</option>';
         hist.forEach((s, i) => {
           const opt = document.createElement('option');
           opt.value = i;
@@ -780,14 +1012,23 @@ function copyTranscript() {
       }
     }
 
-    function getHist() {
-      try { return JSON.parse(safeGet(HIST_KEY) || '[]'); } catch { return []; }
+    function toggleHistDropdown(e) {
+      e.stopPropagation();
+      document.getElementById('folderAssignMenu')?.classList.remove('open');
+      const menu = document.getElementById('histDropdownMenu');
+      menu?.classList.toggle('open');
     }
 
-    function saveHist() {
-      if (!lastData) { toast('Prima genera degli appunti da salvare.', 'err'); return; }
+    function saveHist(silent) {
+      if (!lastData) {
+        if (!silent) toast('Prima genera degli appunti da salvare.', 'err');
+        return;
+      }
       const hist = getHist();
+      const newId = 'les_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      currentLessonId = newId;
       const entry = {
+        id: newId,
         date: new Date().toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }),
         title: lastData.title || 'Senza titolo',
         subject: lastData.subject || '',
@@ -795,11 +1036,12 @@ function copyTranscript() {
         data: lastData,
       };
       hist.unshift(entry);
-      // Tieni max 30 sessioni
       if (hist.length > 30) hist.length = 30;
       safeSet(HIST_KEY, JSON.stringify(hist));
       loadHistList();
-      toast('✓ Sessione salvata in cronologia!', 'ok');
+      const lbl = document.getElementById('histDropdownLabel');
+      if (lbl) lbl.textContent = entry.title;
+      if (!silent) toast('✓ Sessione salvata in cronologia!', 'ok');
     }
 
     function loadHist(idxParam) {
@@ -813,7 +1055,11 @@ function copyTranscript() {
       const entry = hist[parseInt(idx)];
       if (!entry) return;
       lastData = entry.data;
+      currentLessonId = entry.id;
       if (entry.transcript) { finalTr = entry.transcript; renderTbox(); }
+      const lbl = document.getElementById('histDropdownLabel');
+      if (lbl) lbl.textContent = entry.title || 'Cronologia appunti';
+      closeAllDropdowns();
       renderAll(entry.data).then(() => {
         document.getElementById('xbar').style.display = 'flex';
         toast('✓ Sessione "' + entry.title + '" ripristinata', 'ok');
@@ -829,8 +1075,18 @@ function copyTranscript() {
         idx = sel.value;
       }
       const hist = getHist();
-      hist.splice(parseInt(idx), 1);
+      const removed = hist.splice(parseInt(idx), 1)[0];
       safeSet(HIST_KEY, JSON.stringify(hist));
+      if (removed && removed.id) {
+        const folders = getFolders();
+        folders.forEach(f => {
+          if (Array.isArray(f.lessonIds)) {
+            f.lessonIds = f.lessonIds.filter(id => id !== removed.id);
+          }
+        });
+        saveFolders(folders);
+        renderFolders();
+      }
       loadHistList();
       toast('Sessione eliminata.', 'ok');
     }
@@ -1168,9 +1424,6 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
 
     // ══════════════════════════════════════════════════════════════
     //  DEEPSEEK — API compatibile OpenAI
-    //  Endpoint: https://api.deepseek.com/chat/completions
-    //  Modelli:  deepseek-chat (general), deepseek-reasoner (reasoning)
-    //  Auth:     Authorization: Bearer sk-...
     // ══════════════════════════════════════════════════════════════
     const DS_RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
     const DS_MAX_RETRIES = 3;
@@ -1310,7 +1563,6 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
 
     // ══════════════════════════════════════════════════════════════
     //  TRASCRIZIONE AUDIO LUNGO (Gemini File API)
-    //  Supporta file fino a 2GB (circa 9 ore di audio)
     // ══════════════════════════════════════════════════════════════
     
     async function uploadAudioToGemini(file, apiKey) {
@@ -1394,7 +1646,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       if (audioFiles.length > 0) {
         if (provider !== 'gemini') {
           hideOv();
-          toast('⚠️ La trascrizione dei file audio è supportata solo con Google Gemini. Cambia provider dal menu in alto.', 'err');
+          toast('La trascrizione dei file audio è supportata solo con Google Gemini. Cambia provider dal menu in alto.', 'err');
           return;
         }
         for (const af of audioFiles) {
@@ -1428,7 +1680,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       try {
         let parsed;
         if (isLong && hasTr) {
-          toast(`📦 Elaborazione a blocchi (${wordCount.toLocaleString()} parole)...`, 'ok');
+          toast(`Elaborazione a blocchi (${wordCount.toLocaleString()} parole)...`, 'ok');
           parsed = await generateChunked(rawTr, hasPdf);
         } else {
           setOv(
@@ -1443,18 +1695,14 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           console.warn('[LectureAI] ⚠️ notes_html vuoto o mancante!');
         }
 
-        const customTitle = document.getElementById('lessonTitle')?.value.trim();
-        const customSubject = document.getElementById('lessonSubject')?.value.trim();
-        if (customTitle) parsed.title = customTitle;
-        if (customSubject) parsed.subject = customSubject;
-
         lastData = parsed;
         setOv('Renderizzando...', 94);
 
         await renderAll(parsed);
+        saveHist(true);
         hideOv();
         document.getElementById('xbar').style.display = 'flex';
-        toast('✓ Appunti generati!', 'ok');
+        toast('✓ Appunti generati e salvati!', 'ok');
         goToNotes();
         if (_lastTruncated) {
           setTimeout(() => toast('⚠️ Una risposta AI è arrivata troncata per limite di lunghezza: alcuni contenuti potrebbero essere incompleti. Ho recuperato quello che potevo.', 'err'), 3500);
@@ -1698,7 +1946,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const kps = (s.key_points || []).map(k => '<li>' + escHtml(k) + '</li>').join('');
       const defs = (s.definitions || []).map(x => '<div style="padding:8px 0;border-bottom:1px solid var(--border)"><strong style="color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + escHtml(x.term || '') + '</strong><p style="margin:2px 0 0;font-size:.84rem;color:var(--ink)">' + escHtml(x.def || '') + '</p></div>').join('');
       const tops = (d.key_topics || []).map(t => '<span style="display:inline-block;background:var(--accent-soft);color:var(--accent);font-weight:600;padding:4px 12px;border-radius:20px;font-size:.75rem;margin:3px">' + escHtml(t) + '</span>').join('');
-      const miss = s.missing_from_lecture ? '<div class="callout"><strong>📄 Nel PDF ma non trattato:</strong><br>' + escHtml(s.missing_from_lecture) + '</div>' : '';
+      const miss = s.missing_from_lecture ? '<div class="callout"><strong>Nel PDF ma non trattato:</strong><br>' + escHtml(s.missing_from_lecture) + '</div>' : '';
       el.innerHTML = '<h1 style="font-size:1.6rem;font-weight:700;margin-bottom:18px">' + escHtml(d.title || 'Sommario') + '</h1>'
         + '<div class="sgrid"><div class="scard"><div class="scard-l">Difficoltà</div><div class="big">' + escHtml(s.difficulty || '—') + '</div></div>'
         + '<div class="scard"><div class="scard-l">Materia</div><div style="font-size:.95rem;font-weight:600;color:var(--ink);padding-top:3px">' + escHtml(d.subject || '—') + '</div></div></div>'
@@ -1856,13 +2104,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     //  IMPOSTAZIONI — Gestione preset del prompt
     // ══════════════════════════════════════════════════════════════
     const PRESET_LABELS = {
-      informatica: '💻 Informatica / Ingegneria / Scienze informatiche',
-      medicina: '🩺 Medicina / Biologia / Scienze della salute',
-      giurisprudenza: '⚖️ Giurisprudenza / Diritto',
-      economia: '📈 Economia / Management / Finanza',
-      umanistiche: '📚 Lettere / Filosofia / Storia / Lingue',
-      scienze: '🔬 Fisica / Chimica / Matematica / Scienze naturali',
-      generale: '🗣️ Generale — Riunioni / Seminari / Corsi professionali'
+      informatica: 'Informatica / Ingegneria / Scienze informatiche',
+      medicina: 'Medicina / Biologia / Scienze della salute',
+      giurisprudenza: 'Giurisprudenza / Diritto',
+      economia: 'Economia / Management / Finanza',
+      umanistiche: 'Lettere / Filosofia / Storia / Lingue',
+      scienze: 'Fisica / Chimica / Matematica / Scienze naturali',
+      generale: 'Generale — Riunioni / Seminari / Corsi professionali'
     };
 
     function openSettings() {
@@ -1876,6 +2124,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
       sel.value = activePreset;
       document.getElementById('presetEdit').value = getPanel();
+      const dmToggle = document.getElementById('darkModeToggle');
+      if (dmToggle) dmToggle.checked = document.body.classList.contains('dark-mode');
       document.getElementById('settingsOv').classList.add('on');
     }
     function closeSettings() {
@@ -1892,7 +2142,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       document.getElementById('presetEdit').value = def;
       safeRemove(getCustomKey(activePreset));
       customPanel = null;
-      toast('↺ Preset ripristinato (non ancora salvato)', 'ok');
+      toast('Preset ripristinato (non ancora salvato)', 'ok');
     }
     function savePreset() {
       const val = document.getElementById('presetEdit').value.trim();
@@ -1917,7 +2167,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         modal = document.createElement('div');
         modal.id = 'mdModal';
         modal.className = 'mdOv';
-        modal.innerHTML = '<div class="mdBoxWrap"><div class="mdBoxHead"><span>🗒️ Markdown per Obsidian</span><button class="mdClose" onclick="closeMdModal()">✕</button></div><pre class="mdBox" id="mdBoxTxt"></pre><div class="mdBoxFoot"><button class="xbtn" onclick="copyMdModal()">📋 Copia tutto</button></div></div>';
+        modal.innerHTML = '<div class="mdBoxWrap"><div class="mdBoxHead"><span>Markdown per Obsidian</span><button class="mdClose" onclick="closeMdModal()">✕</button></div><pre class="mdBox" id="mdBoxTxt"></pre><div class="mdBoxFoot"><button class="xbtn" onclick="copyMdModal()">Copia tutto</button></div></div>';
         document.body.appendChild(modal);
         modal.addEventListener('click', e => { if (e.target === modal) closeMdModal(); });
       }
@@ -1986,10 +2236,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
 <style>@page{margin:18mm 16mm}body{font-family:Inter,sans-serif;color:#1E293B;line-height:1.75;font-size:11pt}h1{font-size:22pt;margin:0 0 4px}h2{font-size:14pt;border-bottom:1px solid #E2E8F0;padding-bottom:3px;margin:24px 0 10px}h3{font-size:11pt;color:#4F46E5}pre{background:#0F172A;color:#E2E8F0;padding:12px;border-radius:8px;font-size:9pt;white-space:pre-wrap;page-break-inside:avoid}.callout{border-left:4px solid #4F46E5;padding:9px 14px;background:#EEF2FF;margin:10px 0;page-break-inside:avoid}.key-concept{background:#EEF2FF;border:1px solid rgba(79,70,229,.3);border-radius:4px;padding:1px 5px;font-weight:600;color:#4F46E5}.doc-header{border-bottom:2px solid #4F46E5;padding-bottom:14px;margin-bottom:24px}.doc-sub{font-family:monospace;font-size:8.5pt;color:#64748B;margin-top:4px}.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}.scard{border:1px solid #E2E8F0;border-radius:8px;padding:12px;page-break-inside:avoid}.scard-l{font-size:7pt;text-transform:uppercase;letter-spacing:2px;color:#64748B;margin-bottom:4px;font-family:monospace}.big{font-size:18pt;font-weight:700}</style>
 </head><body>
 <div class="doc-header"><h1>${escHtml(d.title || 'Appunti')}</h1><div class="doc-sub">${escHtml(d.subject || '')} · ${new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · LectureAI</div></div>
-<h2>📝 Appunti</h2>${notesHtml}
-${diagsHtml ? '<h2>🔷 Schemi</h2>' + diagsHtml : ''}
-${summHtml ? '<h2>📊 Sommario</h2>' + summHtml : ''}
-${flashHtml ? '<h2>🃏 Flashcard</h2>' + flashHtml : ''}
+<h2>Appunti</h2>${notesHtml}
+${diagsHtml ? '<h2>Schemi</h2>' + diagsHtml : ''}
+${summHtml ? '<h2>Sommario</h2>' + summHtml : ''}
+${flashHtml ? '<h2>Flashcard</h2>' + flashHtml : ''}
 <script>renderMathInElement(document.body,{delimiters:[{left:"\\[",right:"\\]",display:true},{left:"\\(",right:"\\)",display:false}],throwOnError:false});setTimeout(()=>window.print(),800);<\/script>
 </body></html>`;
       const win = window.open('', '_blank', 'width=900,height=700');

@@ -35,9 +35,9 @@
 
     <div class="api-area">
       <select class="psel" id="provSel" onchange="onProvChange()">
-        <option value="gemini">🔵 Google Gemini</option>
-        <option value="anthropic">🟤 Anthropic Claude</option>
-        <option value="deepseek">🐋 DeepSeek</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="anthropic">Anthropic Claude</option>
+        <option value="deepseek">DeepSeek</option>
       </select>
       <input id="apiInput" type="password" placeholder="Incolla la tua API key..." oninput="onKeyInput()">
       <button class="btn-gold" onclick="saveKey()">Salva</button>
@@ -46,7 +46,12 @@
 
     <div class="header-right">
       <div id="hdate"></div>
-      <button class="btn-settings" onclick="openSettings()" title="Impostazioni prompt">⚙️</button>
+      <button class="btn-settings" onclick="openSettings()" title="Impostazioni">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -59,122 +64,74 @@
         <div class="dash-header">
           <div>
             <h1 class="dash-title">Le tue lezioni</h1>
-            <p class="dash-subtitle">Gestisci le registrazioni passate o avvia una nuova sessione di studio</p>
+            <p class="dash-subtitle">Organizza gli appunti in cartelle o avvia una nuova sessione di studio</p>
           </div>
-          <button class="btn-primary" onclick="goToRecorder()">+ Nuova Lezione</button>
+          <button class="btn-primary" onclick="goToRecorder()">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Nuova Lezione
+          </button>
         </div>
 
-        <div class="dash-section-title">Cartelle</div>
-        <div class="folders-grid">
-          <div class="folder-card" onclick="goToRecorder()">
-            <div class="folder-ico">💻</div>
-            <div>
-              <div class="folder-name">Informatica</div>
-              <div class="folder-count">Corso universitario</div>
-            </div>
-          </div>
-          <div class="folder-card" onclick="goToRecorder()">
-            <div class="folder-ico">📐</div>
-            <div>
-              <div class="folder-name">Analisi Matematica</div>
-              <div class="folder-count">Corso universitario</div>
-            </div>
-          </div>
-          <div class="folder-card" onclick="goToRecorder()">
-            <div class="folder-ico">🧬</div>
-            <div>
-              <div class="folder-name">Scienze &amp; Medicina</div>
-              <div class="folder-count">Corso universitario</div>
-            </div>
-          </div>
+        <div class="dash-section-header">
+          <div class="dash-section-title">Cartelle</div>
+          <button class="btn-text-action" id="clearFolderFilterBtn" style="display:none" onclick="filterByFolder(null)">Mostra tutte le lezioni</button>
         </div>
+        <div id="folders-container" class="folders-grid"></div>
 
-        <div class="dash-section-title">Cronologia sessioni salvate</div>
+        <div class="dash-section-header">
+          <div class="dash-section-title" id="history-section-label">Cronologia lezioni</div>
+        </div>
         <div id="history-list-container" class="lessons-grid"></div>
-
-        <div class="dash-section-title">Esempi / Lezioni recenti</div>
-        <div class="lessons-grid">
-          <div class="lesson-card" onclick="goToRecorder()">
-            <div>
-              <div class="lesson-card-top">
-                <span class="lesson-badge">Algoritmi</span>
-                <span class="lesson-date">Esempio</span>
-              </div>
-              <h3 style="margin-top:10px">Introduzione agli Alberi Binari di Ricerca</h3>
-              <p style="margin-top:6px">Strutture dati gerarchiche, complessità temporale e visite pre-order, in-order e post-order.</p>
-            </div>
-            <div class="lesson-card-foot">
-              <span>Nuova registrazione →</span>
-            </div>
-          </div>
-          <div class="lesson-card" onclick="goToRecorder()">
-            <div>
-              <div class="lesson-card-top">
-                <span class="lesson-badge">Fisica</span>
-                <span class="lesson-date">Esempio</span>
-              </div>
-              <h3 style="margin-top:10px">Leggi della Termodinamica ed Entropia</h3>
-              <p style="margin-top:6px">Primo e secondo principio, cicli termodinamici, rendimento di Carnot e trasformazioni.</p>
-            </div>
-            <div class="lesson-card-foot">
-              <span>Nuova registrazione →</span>
-            </div>
-          </div>
-          <div class="lesson-card" onclick="goToRecorder()">
-            <div>
-              <div class="lesson-card-top">
-                <span class="lesson-badge">Diritto Privato</span>
-                <span class="lesson-date">Esempio</span>
-              </div>
-              <h3 style="margin-top:10px">Obbligazioni e Responsabilità Civile</h3>
-              <p style="margin-top:6px">Fonti delle obbligazioni, adempimento, mora del debitore e risarcimento del danno.</p>
-            </div>
-            <div class="lesson-card-foot">
-              <span>Nuova registrazione →</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
     <!-- VISTA 2: REGISTRAZIONE / UPLOAD NUOVA LEZIONE -->
     <div id="view-recorder">
       <div class="view-container">
-        <button class="btn-back" onclick="goToDashboard()">← Torna alla cronologia</button>
+        <button class="btn-back" onclick="goToDashboard()">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Torna alla cronologia
+        </button>
 
         <div class="recorder-grid">
-          <!-- Colonna sinistra: Metadati, Registrazione, File -->
+          <!-- Colonna sinistra: Trascrizione (in alto) + Materiale in aggiunta (sotto) -->
           <div>
             <div class="card-panel">
-              <span class="lbl">Dettagli lezione</span>
-              <input class="input-field" id="lessonTitle" type="text" placeholder="Titolo lezione (opzionale)">
-              <input class="input-field" id="lessonSubject" type="text" placeholder="Materia / Corso (opzionale)" style="margin-bottom:0">
-            </div>
-
-            <div class="card-panel">
-              <div class="lbl">Lingua riconoscimento</div>
+              <div class="lbl">Trascrizione</div>
               <select class="ls" id="langSel">
-                <option value="it-IT">🇮🇹 Italiano</option>
-                <option value="en-US">🇺🇸 English (US)</option>
-                <option value="en-GB">🇬🇧 English (UK)</option>
-                <option value="fr-FR">🇫🇷 Français</option>
-                <option value="de-DE">🇩🇪 Deutsch</option>
-                <option value="es-ES">🇪🇸 Español</option>
+                <option value="it-IT">Italiano (IT)</option>
+                <option value="en-US">English (US)</option>
+                <option value="en-GB">English (UK)</option>
+                <option value="fr-FR">Français (FR)</option>
+                <option value="de-DE">Deutsch (DE)</option>
+                <option value="es-ES">Español (ES)</option>
               </select>
               <button class="rbtn" id="recBtn" onclick="toggleRec()">
                 <span class="dot"></span><span id="recLbl">Inizia Registrazione</span>
               </button>
-              <button class="sbtn" id="stopBtn" onclick="stopRec()" style="display:none">⬛ Ferma registrazione</button>
-              <div class="timer" id="tmr">⏱ 00:00</div>
+              <button class="sbtn" id="stopBtn" onclick="stopRec()" style="display:none">Ferma registrazione</button>
+              <div class="timer" id="tmr">00:00</div>
               <div class="mbadge" id="mathBadge">∑ Formule matematiche rilevate</div>
               <div class="tkbadge" id="tkBadge"></div>
             </div>
 
             <div class="card-panel" style="margin-bottom:0">
-              <div class="lbl">Materiale del professore</div>
+              <div class="lbl">Materiale in aggiunta</div>
               <div class="dz" id="dz" ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
                 <input type="file" id="fileIn" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/webm,.pdf,.txt,.md,.tex,.m4a,.mp3,.wav,.mp4,.webm,.aac,.ogg" onchange="onFile(event)" multiple>
-                <div id="dzIco" style="font-size:1.5rem;margin-bottom:4px">📄</div>
+                <div id="dzIco" class="dz-icon-wrap">
+                  <svg class="ico-lg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
                 <div id="dzTxt">Trascina qui i tuoi file<br><small>PDF · TXT · MD · Audio</small></div>
               </div>
               <div class="file-list" id="fileList"></div>
@@ -182,13 +139,33 @@
           </div>
 
           <!-- Colonna destra: Trascrizione live / Testo + Genera -->
-          <div class="card-panel" style="display:flex;flex-direction:column;margin-bottom:0">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;margin-bottom:10px">
+          <div class="card-panel recorder-right-panel">
+            <div class="transcript-toolbar">
               <span class="lbl" style="margin-bottom:0">Trascrizione / Testo</span>
-              <span style="display:flex;gap:6px">
-                <button class="tmode-btn on" id="tmodeLive" onclick="setTmode('live')">🎙 Live</button>
-                <button class="tmode-btn" id="tmodeText" onclick="setTmode('text')">✏️ Testo</button>
-                <button class="tmode-btn" onclick="copyTranscript()" title="Copia la trascrizione attiva">📋 Copia</button>
+              <span class="tmode-group">
+                <button class="tmode-btn on" id="tmodeLive" onclick="setTmode('live')">
+                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
+                  Live
+                </button>
+                <button class="tmode-btn" id="tmodeText" onclick="setTmode('text')">
+                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                  Testo
+                </button>
+                <button class="tmode-btn" onclick="copyTranscript()" title="Copia la trascrizione attiva">
+                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  Copia
+                </button>
               </span>
             </div>
 
@@ -199,7 +176,7 @@
             <textarea class="tbox tpaste" id="tpaste" placeholder="Incolla o trascina qui il tuo testo..." style="display:none" oninput="onPasteInput()" ondragover="event.preventDefault()" ondrop="onTextDrop(event)" ondragenter="this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')"></textarea>
             <div id="tpaste-info" style="display:none;font-size:.72rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:6px"></div>
 
-            <button class="gbtn" id="genBtn" onclick="generate()" disabled>✨ Genera Appunti</button>
+            <button class="gbtn" id="genBtn" onclick="generate()" disabled>Genera Appunti</button>
           </div>
         </div>
       </div>
@@ -208,7 +185,13 @@
     <!-- VISTA 3: VISUALIZZAZIONE APPUNTI GENERATI -->
     <div id="view-notes">
       <div class="view-container">
-        <button class="btn-back" onclick="goToDashboard()">← Torna alla cronologia</button>
+        <button class="btn-back" onclick="goToDashboard()">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          Torna alla cronologia
+        </button>
 
         <div class="notes-layout">
           <!-- Sidebar sinistra con info lezione e azioni -->
@@ -226,31 +209,92 @@
               <strong id="notesSidebarDate">—</strong>
             </div>
 
-            <div style="border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:8px">
-              <button class="btn-primary" style="width:100%;justify-content:center" onclick="rigenera()">🔄 Rigenera</button>
-              <button class="hist-btn hist-save" style="width:100%;padding:9px" onclick="saveHist()" title="Salva sessione corrente">💾 Salva in cronologia</button>
+            <div class="sidebar-actions">
+              <button class="btn-primary" style="width:100%;justify-content:center" onclick="rigenera()">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"></polyline>
+                  <polyline points="1 20 1 14 7 14"></polyline>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                Rigenera
+              </button>
+
+              <!-- Salva in cartella dropdown -->
+              <div class="dropdown-wrap">
+                <button class="btn-secondary" style="width:100%;justify-content:center" onclick="toggleFolderAssignDropdown(event)">
+                  <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  Salva in cartella
+                </button>
+                <div class="custom-dropdown-menu" id="folderAssignMenu"></div>
+              </div>
             </div>
 
-            <div class="hist-bar" style="border-top:1px solid var(--border);padding-top:12px">
-              <select class="hist-sel" id="histSel" onchange="loadHist()">
-                <option value="">📋 Cronologia...</option>
-              </select>
-              <button class="hist-btn" onclick="deleteHist()" title="Elimina selezionato">🗑</button>
+            <!-- Tendina Cronologia Appunti custom -->
+            <div class="sidebar-history-section">
+              <span class="lbl">Cronologia appunti</span>
+              <div class="dropdown-wrap">
+                <button class="custom-select-btn" id="histDropdownBtn" onclick="toggleHistDropdown(event)">
+                  <span id="histDropdownLabel">Cronologia appunti</span>
+                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="custom-dropdown-menu hist-dropdown-list" id="histDropdownMenu"></div>
+              </div>
+              <select id="histSel" style="display:none" onchange="loadHist()"></select>
             </div>
           </aside>
 
           <!-- Area principale con tab e contenuti -->
           <div class="right">
             <div class="tabs">
-              <div class="tab on" onclick="goTab('notes')">📝 Appunti</div>
-              <div class="tab" onclick="goTab('diagrams')">🔷 Schemi</div>
-              <div class="tab" onclick="goTab('summary')">📊 Sommario</div>
-              <div class="tab" onclick="goTab('flash')">🃏 Flashcard</div>
+              <div class="tab on" onclick="goTab('notes')">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+                Appunti
+              </div>
+              <div class="tab" onclick="goTab('diagrams')">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+                Schemi
+              </div>
+              <div class="tab" onclick="goTab('summary')">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="20" x2="18" y2="10"></line>
+                  <line x1="12" y1="20" x2="12" y2="4"></line>
+                  <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+                Sommario
+              </div>
+              <div class="tab" onclick="goTab('flash')">
+                <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                  <line x1="6" y1="8" x2="18" y2="8"></line>
+                  <line x1="6" y1="12" x2="14" y2="12"></line>
+                </svg>
+                Flashcard
+              </div>
             </div>
 
             <div class="pane on" id="p-notes">
               <div class="empty" id="e-notes">
-                <div class="empty-ico">📖</div>
+                <div class="empty-ico">
+                  <svg class="ico-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                  </svg>
+                </div>
                 <div class="empty-t">Nessun appunto</div>
                 <div class="empty-s">Scegli provider, inserisci API key, registra la lezione e/o carica il PDF, poi premi Genera.</div>
               </div>
@@ -259,7 +303,14 @@
 
             <div class="pane" id="p-diagrams">
               <div class="empty" id="e-diagrams">
-                <div class="empty-ico">🔷</div>
+                <div class="empty-ico">
+                  <svg class="ico-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                  </svg>
+                </div>
                 <div class="empty-t">Nessuno schema</div>
                 <div class="empty-s">Appariranno dopo la generazione.</div>
               </div>
@@ -268,7 +319,13 @@
 
             <div class="pane" id="p-summary">
               <div class="empty" id="e-summary">
-                <div class="empty-ico">📊</div>
+                <div class="empty-ico">
+                  <svg class="ico-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10"></line>
+                    <line x1="12" y1="20" x2="12" y2="4"></line>
+                    <line x1="6" y1="20" x2="6" y2="14"></line>
+                  </svg>
+                </div>
                 <div class="empty-t">Nessun sommario</div>
               </div>
               <div id="summEl" style="display:none"></div>
@@ -276,18 +333,24 @@
 
             <div class="pane" id="p-flash">
               <div class="empty" id="e-flash">
-                <div class="empty-ico">🃏</div>
+                <div class="empty-ico">
+                  <svg class="ico-xl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                    <line x1="6" y1="8" x2="18" y2="8"></line>
+                    <line x1="6" y1="12" x2="14" y2="12"></line>
+                  </svg>
+                </div>
                 <div class="empty-t">Nessuna flashcard</div>
               </div>
               <div id="flashEl" style="display:none"></div>
             </div>
 
             <div class="xbar" id="xbar" style="display:none">
-              <button class="xbtn" onclick="showMdModal()">🗒️ Obsidian</button>
-              <button class="xbtn" onclick="exportMd()">📄 Markdown</button>
-              <button class="xbtn" onclick="exportHtml()">🌐 HTML</button>
-              <button class="xbtn" onclick="copyTxt()">📋 Copia</button>
-              <button class="xbtn" onclick="printAll()">🖨️ Salva PDF</button>
+              <button class="xbtn" onclick="showMdModal()">Obsidian</button>
+              <button class="xbtn" onclick="exportMd()">Markdown</button>
+              <button class="xbtn" onclick="exportHtml()">HTML</button>
+              <button class="xbtn" onclick="copyTxt()">Copia testo</button>
+              <button class="xbtn" onclick="printAll()">Salva PDF</button>
             </div>
           </div>
         </div>
@@ -296,14 +359,62 @@
 
   </main>
 
+  <!-- Modale Creazione Cartella -->
+  <div class="settingsOv" id="folderModal">
+    <div class="settingsBox" style="width:min(440px, 92vw)">
+      <div class="settingsHead">
+        <span>Nuova cartella</span>
+        <button class="mdClose" onclick="closeFolderModal()">✕</button>
+      </div>
+      <div class="settingsBody">
+        <div class="setRow">
+          <label class="lbl">Nome cartella</label>
+          <input class="input-field" id="folderNameInput" type="text" placeholder="Es. Informatica, Diritto Privato..." style="margin-bottom:0">
+        </div>
+        <div class="setRow" style="margin-bottom:0">
+          <label class="lbl">Emoji / Icona</label>
+          <div class="emoji-picker-row">
+            <input class="input-field" id="folderIconInput" type="text" value="📁" maxlength="4" style="width:72px;text-align:center;font-size:1.2rem;margin-bottom:0">
+            <div class="emoji-presets">
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📁')">📁</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('💻')">💻</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📐')">📐</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('🧬')">🧬</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('⚖️')">⚖️</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📈')">📈</button>
+              <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📚')">📚</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="settingsFoot">
+        <span style="flex:1"></span>
+        <button class="xbtn" onclick="closeFolderModal()">Annulla</button>
+        <button class="gbtn-small" onclick="confirmCreateFolder()">Crea cartella</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modale Impostazioni -->
   <div class="settingsOv" id="settingsOv">
     <div class="settingsBox">
       <div class="settingsHead">
-        <span>⚙️ Impostazioni — Profilo del prompt</span>
+        <span>Impostazioni</span>
         <button class="mdClose" onclick="closeSettings()">✕</button>
       </div>
       <div class="settingsBody">
+        <!-- Toggle Dark Mode -->
+        <div class="setRow settings-toggle-row">
+          <div>
+            <div class="settings-toggle-title">Modalità Notturna</div>
+            <div class="settings-toggle-sub">Attiva il tema scuro riposante per la vista</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+
         <div class="setRow">
           <label class="lbl">Disciplina / Profilo</label>
           <select class="ls" id="presetSel" onchange="onPresetChange()"></select>
@@ -313,16 +424,16 @@
           <textarea class="setTextarea" id="presetEdit" spellcheck="false"></textarea>
         </div>
         <div class="setHint">
-          💡 La <b>base</b> (schema JSON, regole su N livelli, filtro rumore) è sempre presente.
+          La <b>base</b> (schema JSON, regole su N livelli, filtro rumore) è sempre presente.
           Quello che modifichi qui è il <b>pannello disciplina</b>, cioè le istruzioni specifiche
           per il tipo di corso.
         </div>
       </div>
       <div class="settingsFoot">
-        <button class="xbtn" onclick="resetPresetEdit()">↺ Ripristina preset</button>
+        <button class="xbtn" onclick="resetPresetEdit()">Ripristina preset</button>
         <span style="flex:1"></span>
         <button class="xbtn" onclick="closeSettings()">Annulla</button>
-        <button class="gbtn-small" onclick="savePreset()">💾 Salva</button>
+        <button class="gbtn-small" onclick="savePreset()">Salva</button>
       </div>
     </div>
   </div>
