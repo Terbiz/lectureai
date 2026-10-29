@@ -179,35 +179,99 @@ document.addEventListener('visibilitychange', () => {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  SISTEMA DI TEMI (lai_theme: light, blue, green, dark)
+    //  SISTEMA DI TEMI (light, dark, pink, warm + custom color)
     // ══════════════════════════════════════════════════════════════
     const THEME_KEY = 'lai_theme';
+    const CUSTOM_COLOR_KEY = 'lai_custom_theme_color';
     const DARK_KEY = 'lai_darkmode';
 
-    function loadAppTheme() {
-      let savedTheme = safeGet(THEME_KEY);
-      if (!savedTheme) {
-        savedTheme = safeGet(DARK_KEY) === 'true' ? 'dark' : 'light';
+    function clearCustomPrimaryVars() {
+      const root = document.documentElement;
+      root.style.removeProperty('--primary-color');
+      root.style.removeProperty('--btn-primary');
+      root.style.removeProperty('--btn-primary-hover');
+      root.style.removeProperty('--primary-soft');
+      document.body.style.removeProperty('--primary-color');
+      document.body.style.removeProperty('--btn-primary');
+      document.body.style.removeProperty('--btn-primary-hover');
+      document.body.style.removeProperty('--primary-soft');
+    }
+
+    function applyCustomPrimaryVars(color) {
+      if (!color) return;
+      const root = document.documentElement;
+      const soft = hexToRgba(color, 0.12);
+      root.style.setProperty('--primary-color', color);
+      root.style.setProperty('--btn-primary', color);
+      root.style.setProperty('--btn-primary-hover', color);
+      root.style.setProperty('--primary-soft', soft);
+      document.body.style.setProperty('--primary-color', color);
+      document.body.style.setProperty('--btn-primary', color);
+      document.body.style.setProperty('--btn-primary-hover', color);
+      document.body.style.setProperty('--primary-soft', soft);
+    }
+
+    function updateThemeUI(activeTheme, customColor) {
+      document.querySelectorAll('#themeSelectorGrid .theme-option-card').forEach(btn => {
+        btn.classList.toggle('active', !customColor && btn.getAttribute('data-theme') === activeTheme);
+      });
+      const customBar = document.getElementById('customThemeBar');
+      if (customBar) {
+        customBar.classList.toggle('active', !!customColor);
       }
-      applyThemeClasses(savedTheme);
+      document.querySelectorAll('.custom-dot').forEach(dot => {
+        dot.classList.toggle('active', !!customColor && dot.getAttribute('data-color')?.toLowerCase() === customColor.toLowerCase());
+      });
+      const picker = document.getElementById('customThemeColorPicker');
+      if (picker && customColor) {
+        picker.value = customColor;
+      }
     }
 
     function applyThemeClasses(theme) {
-      const valid = ['light', 'blue', 'green', 'dark'].includes(theme) ? theme : 'light';
-      document.body.classList.remove('theme-light', 'theme-blue', 'theme-green', 'theme-dark', 'dark-mode');
+      const valid = ['light', 'dark', 'pink', 'warm'].includes(theme) ? theme : 'light';
+      document.body.classList.remove('theme-light', 'theme-dark', 'theme-pink', 'theme-warm', 'theme-blue', 'theme-green', 'dark-mode');
       document.body.classList.add('theme-' + valid);
       if (valid === 'dark') {
         document.body.classList.add('dark-mode');
       }
-      document.querySelectorAll('#themeSelectorGrid .theme-option-card').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-theme') === valid);
-      });
+      return valid;
     }
 
+    function loadAppTheme() {
+      let savedTheme = safeGet(THEME_KEY);
+      if (!savedTheme || savedTheme === 'blue' || savedTheme === 'green') {
+        savedTheme = safeGet(DARK_KEY) === 'true' ? 'dark' : 'light';
+      }
+      const valid = applyThemeClasses(savedTheme);
+      const customColor = safeGet(CUSTOM_COLOR_KEY);
+      if (customColor) {
+        applyCustomPrimaryVars(customColor);
+      } else {
+        clearCustomPrimaryVars();
+      }
+      updateThemeUI(valid, customColor);
+    }
+
+    // Selezione di un tema predefinito: rimuove e ignora eventuale colore personalizzato
     function setAppTheme(theme) {
-      applyThemeClasses(theme);
-      safeSet(THEME_KEY, theme);
-      safeSet(DARK_KEY, theme === 'dark' ? 'true' : 'false');
+      clearCustomPrimaryVars();
+      safeRemove(CUSTOM_COLOR_KEY);
+      const valid = applyThemeClasses(theme);
+      safeSet(THEME_KEY, valid);
+      safeSet(DARK_KEY, valid === 'dark' ? 'true' : 'false');
+      updateThemeUI(valid, null);
+      renderFolders();
+      loadHistList();
+    }
+
+    // Scelta di un colore primario personalizzato
+    function setCustomThemeColor(color) {
+      if (!color) return;
+      safeSet(CUSTOM_COLOR_KEY, color);
+      applyCustomPrimaryVars(color);
+      const currentTheme = safeGet(THEME_KEY) || 'light';
+      updateThemeUI(currentTheme, color);
       renderFolders();
       loadHistList();
     }

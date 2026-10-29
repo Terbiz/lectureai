@@ -416,26 +416,62 @@
         <button class="mdClose" onclick="closeSettings()">✕</button>
       </div>
       <div class="settingsBody">
-        <!-- Sezione Tema (4 opzioni) -->
+        <!-- Sezione Tema: 4 Temi Predefiniti (Tailwind/Bootstrap) + Colore Personalizzato -->
         <div class="setRow">
           <label class="lbl">Tema</label>
           <div class="theme-selector-grid" id="themeSelectorGrid">
             <button type="button" class="theme-option-card active" data-theme="light" onclick="setAppTheme('light')">
-              <span class="theme-preview theme-preview-light"></span>
+              <span class="theme-swatch-pair">
+                <span class="theme-swatch-bg" style="background:#F8FAFC"></span>
+                <span class="theme-swatch-pri" style="background:#4F46E5"></span>
+              </span>
               <span class="theme-option-name">Chiaro</span>
             </button>
-            <button type="button" class="theme-option-card" data-theme="blue" onclick="setAppTheme('blue')">
-              <span class="theme-preview theme-preview-blue"></span>
-              <span class="theme-option-name">Blu</span>
-            </button>
-            <button type="button" class="theme-option-card" data-theme="green" onclick="setAppTheme('green')">
-              <span class="theme-preview theme-preview-green"></span>
-              <span class="theme-option-name">Verde</span>
-            </button>
+
             <button type="button" class="theme-option-card" data-theme="dark" onclick="setAppTheme('dark')">
-              <span class="theme-preview theme-preview-dark"></span>
+              <span class="theme-swatch-pair">
+                <span class="theme-swatch-bg" style="background:#0F172A;border-color:#334155"></span>
+                <span class="theme-swatch-pri" style="background:#6366F1"></span>
+              </span>
               <span class="theme-option-name">Dark Mode</span>
             </button>
+
+            <button type="button" class="theme-option-card" data-theme="pink" onclick="setAppTheme('pink')">
+              <span class="theme-swatch-pair">
+                <span class="theme-swatch-bg" style="background:#FFF1F2;border-color:#FECDD3"></span>
+                <span class="theme-swatch-pri" style="background:#F43F5E"></span>
+              </span>
+              <span class="theme-option-name">Rosa</span>
+            </button>
+
+            <button type="button" class="theme-option-card" data-theme="warm" onclick="setAppTheme('warm')">
+              <span class="theme-swatch-pair">
+                <span class="theme-swatch-bg" style="background:#FEFCE8;border-color:#FEF08A"></span>
+                <span class="theme-swatch-pri" style="background:#CA8A04"></span>
+              </span>
+              <span class="theme-option-name">Sabbia</span>
+            </button>
+          </div>
+
+          <!-- Opzione Colore Personalizzato -->
+          <div class="custom-theme-bar" id="customThemeBar">
+            <div class="custom-theme-info">
+              <span class="custom-theme-title">Personalizzato</span>
+              <span class="custom-theme-sub">Scegli un colore primario su misura</span>
+            </div>
+            <div class="custom-theme-controls">
+              <div class="custom-dots">
+                <button type="button" class="custom-dot" data-color="#0284C7" style="background:#0284C7" onclick="setCustomThemeColor('#0284C7')" title="Sky 600"></button>
+                <button type="button" class="custom-dot" data-color="#059669" style="background:#059669" onclick="setCustomThemeColor('#059669')" title="Emerald 600"></button>
+                <button type="button" class="custom-dot" data-color="#7C3AED" style="background:#7C3AED" onclick="setCustomThemeColor('#7C3AED')" title="Violet 600"></button>
+                <button type="button" class="custom-dot" data-color="#D97706" style="background:#D97706" onclick="setCustomThemeColor('#D97706')" title="Amber 600"></button>
+                <button type="button" class="custom-dot" data-color="#E11D48" style="background:#E11D48" onclick="setCustomThemeColor('#E11D48')" title="Rose 600"></button>
+              </div>
+              <label class="color-picker-wrap" title="Selettore colore personalizzato">
+                <input type="color" id="customThemeColorPicker" value="#4F46E5" oninput="setCustomThemeColor(this.value)">
+                <span class="color-picker-label">Picker</span>
+              </label>
+            </div>
           </div>
         </div>
 
