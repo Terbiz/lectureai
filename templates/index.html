@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="alternate icon" href="{{ url_for('static', filename='favicon.svg') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.svg') }}">
-  <meta name="theme-color" content="#4F46E5">
+  <meta name="theme-color" content="#EBF4FF">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
   <!-- Header fisso -->
   <header>
     <div class="header-left">
-      <div class="logo" onclick="goToDashboard()">Lecture<em>AI</em> <small>localhost</small></div>
+      <div class="logo" onclick="goToDashboard()">Lecture<em>AI</em></div>
       <nav class="nav-links">
         <button class="nav-btn active" id="nav-dashboard" onclick="goToDashboard()">Lezioni</button>
         <button class="nav-btn" id="nav-recorder" onclick="goToRecorder()">Registra</button>
@@ -66,8 +66,8 @@
             <h1 class="dash-title">Le tue lezioni</h1>
             <p class="dash-subtitle">Organizza gli appunti in cartelle o avvia una nuova sessione di studio</p>
           </div>
-          <button class="btn-primary" onclick="goToRecorder()">
-            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <button class="btn-new-lesson" onclick="goToRecorder()">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
@@ -90,19 +90,21 @@
 
     <!-- VISTA 2: REGISTRAZIONE / UPLOAD NUOVA LEZIONE -->
     <div id="view-recorder">
-      <div class="view-container">
-        <button class="btn-back" onclick="goToDashboard()">
-          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="19" y1="12" x2="5" y2="12"></line>
-            <polyline points="12 19 5 12 12 5"></polyline>
-          </svg>
-          Torna alla cronologia
-        </button>
+      <div class="view-container recorder-container">
+        <div class="recorder-topbar">
+          <button class="btn-back" style="margin-bottom:0" onclick="goToDashboard()">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Torna alla cronologia
+          </button>
+        </div>
 
         <div class="recorder-grid">
           <!-- Colonna sinistra: Trascrizione (in alto) + Materiale in aggiunta (sotto) -->
-          <div>
-            <div class="card-panel">
+          <div class="recorder-left-col">
+            <div class="card-panel" style="margin-bottom:0">
               <div class="lbl">Trascrizione</div>
               <select class="ls" id="langSel">
                 <option value="it-IT">Italiano (IT)</option>
@@ -121,7 +123,7 @@
               <div class="tkbadge" id="tkBadge"></div>
             </div>
 
-            <div class="card-panel" style="margin-bottom:0">
+            <div class="card-panel recorder-files-panel">
               <div class="lbl">Materiale in aggiunta</div>
               <div class="dz" id="dz" ondragover="dzOver(event)" ondragleave="dzLeave()" ondrop="dzDrop(event)">
                 <input type="file" id="fileIn" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/webm,.pdf,.txt,.md,.tex,.m4a,.mp3,.wav,.mp4,.webm,.aac,.ogg" onchange="onFile(event)" multiple>
@@ -361,7 +363,7 @@
 
   <!-- Modale Creazione Cartella -->
   <div class="settingsOv" id="folderModal">
-    <div class="settingsBox" style="width:min(440px, 92vw)">
+    <div class="settingsBox" style="width:min(460px, 92vw)">
       <div class="settingsHead">
         <span>Nuova cartella</span>
         <button class="mdClose" onclick="closeFolderModal()">✕</button>
@@ -371,7 +373,7 @@
           <label class="lbl">Nome cartella</label>
           <input class="input-field" id="folderNameInput" type="text" placeholder="Es. Informatica, Diritto Privato..." style="margin-bottom:0">
         </div>
-        <div class="setRow" style="margin-bottom:0">
+        <div class="setRow">
           <label class="lbl">Emoji / Icona</label>
           <div class="emoji-picker-row">
             <input class="input-field" id="folderIconInput" type="text" value="📁" maxlength="4" style="width:72px;text-align:center;font-size:1.2rem;margin-bottom:0">
@@ -384,6 +386,17 @@
               <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📈')">📈</button>
               <button type="button" class="emoji-chip" onclick="selectFolderEmoji('📚')">📚</button>
             </div>
+          </div>
+        </div>
+        <div class="setRow" style="margin-bottom:0">
+          <label class="lbl">Colore cartella</label>
+          <div class="color-swatches" id="folderColorSwatches">
+            <button type="button" class="color-swatch active" data-color="#3B82F6" style="background:#3B82F6" onclick="selectFolderColor('#3B82F6')"></button>
+            <button type="button" class="color-swatch" data-color="#22C55E" style="background:#22C55E" onclick="selectFolderColor('#22C55E')"></button>
+            <button type="button" class="color-swatch" data-color="#8B5CF6" style="background:#8B5CF6" onclick="selectFolderColor('#8B5CF6')"></button>
+            <button type="button" class="color-swatch" data-color="#F59E0B" style="background:#F59E0B" onclick="selectFolderColor('#F59E0B')"></button>
+            <button type="button" class="color-swatch" data-color="#EC4899" style="background:#EC4899" onclick="selectFolderColor('#EC4899')"></button>
+            <button type="button" class="color-swatch" data-color="#06B6D4" style="background:#06B6D4" onclick="selectFolderColor('#06B6D4')"></button>
           </div>
         </div>
       </div>

@@ -105,7 +105,8 @@
     let apiKey = '', provider = 'gemini', lastData = null;
     let currentLessonId = null;
     let activeFolderFilter = null;
-    let _lastTruncated = false; // true se una o più risposte AI sono arrivate tagliate per limite di token
+    let selectedFolderColor = '#3B82F6';
+    let _lastTruncated = false;
     let _micStream = null;
 
     // Gestione sospensione pagina (iPad/iPhone)
@@ -192,12 +193,23 @@ document.addEventListener('visibilitychange', () => {
     function toggleDarkMode(enabled) {
       document.body.classList.toggle('dark-mode', !!enabled);
       safeSet(DARK_KEY, enabled ? 'true' : 'false');
+      renderFolders();
+      loadHistList();
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  CARTELLE (lai_folders)
+    //  CARTELLE (lai_folders) E COLORI PASTELLO
     // ══════════════════════════════════════════════════════════════
     const FOLDERS_KEY = 'lai_folders';
+
+    function hexToRgba(hex, alpha) {
+      const clean = String(hex || '#3B82F6').replace('#', '');
+      if (clean.length !== 6) return `rgba(59, 130, 246, ${alpha})`;
+      const r = parseInt(clean.slice(0, 2), 16);
+      const g = parseInt(clean.slice(2, 4), 16);
+      const b = parseInt(clean.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
 
     function getFolders() {
       try { return JSON.parse(safeGet(FOLDERS_KEY) || '[]'); } catch { return []; }
@@ -207,10 +219,18 @@ document.addEventListener('visibilitychange', () => {
       safeSet(FOLDERS_KEY, JSON.stringify(folders));
     }
 
+    function selectFolderColor(color) {
+      selectedFolderColor = color;
+      document.querySelectorAll('#folderColorSwatches .color-swatch').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-color') === color);
+      });
+    }
+
     function renderFolders() {
       const container = document.getElementById('folders-container');
       if (!container) return;
       const folders = getFolders();
+      const isDark = document.body.classList.contains('dark-mode');
 
       if (!folders.length) {
         container.innerHTML = `
@@ -225,10 +245,16 @@ document.addEventListener('visibilitychange', () => {
       const cardsHtml = folders.map(f => {
         const count = Array.isArray(f.lessonIds) ? f.lessonIds.length : 0;
         const isActive = activeFolderFilter === f.id;
+        const col = f.color || '#3B82F6';
+        const bgAlpha = isActive ? (isDark ? 0.28 : 0.22) : (isDark ? 0.16 : 0.12);
+        const borderAlpha = isActive ? 0.85 : 0.45;
+        const emoji = f.emoji || f.icon || '📁';
         return `
-          <div class="folder-card ${isActive ? 'active' : ''}" onclick="filterByFolder('${escHtml(f.id)}')">
+          <div class="folder-card ${isActive ? 'active' : ''}"
+               style="background:${hexToRgba(col, bgAlpha)};border-color:${hexToRgba(col, borderAlpha)}"
+               onclick="filterByFolder('${escHtml(f.id)}')">
             <div class="folder-card-main">
-              <div class="folder-ico">${escHtml(f.icon || '📁')}</div>
+              <div class="folder-ico" style="color:${escHtml(col)}">${escHtml(emoji)}</div>
               <div style="min-width:0">
                 <div class="folder-name">${escHtml(f.name)}</div>
                 <div class="folder-count">${count} ${count === 1 ? 'lezione' : 'lezioni'}</div>
@@ -259,6 +285,7 @@ document.addEventListener('visibilitychange', () => {
       const iconIn = document.getElementById('folderIconInput');
       if (nameIn) nameIn.value = '';
       if (iconIn) iconIn.value = '📁';
+      selectFolderColor('#3B82F6');
       document.getElementById('folderModal')?.classList.add('on');
       setTimeout(() => nameIn?.focus(), 50);
     }
@@ -274,7 +301,8 @@ document.addEventListener('visibilitychange', () => {
 
     function confirmCreateFolder() {
       const name = (document.getElementById('folderNameInput')?.value || '').trim();
-      const icon = (document.getElementById('folderIconInput')?.value || '📁').trim() || '📁';
+      const emoji = (document.getElementById('folderIconInput')?.value || '📁').trim() || '📁';
+      const color = selectedFolderColor || '#3B82F6';
       if (!name) {
         toast('Inserisci un nome per la cartella.', 'err');
         return;
@@ -283,7 +311,9 @@ document.addEventListener('visibilitychange', () => {
       folders.push({
         id: 'fld_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
         name,
-        icon,
+        emoji,
+        icon: emoji,
+        color,
         lessonIds: []
       });
       saveFolders(folders);
@@ -345,10 +375,15 @@ document.addEventListener('visibilitychange', () => {
       } else {
         menu.innerHTML = folders.map(f => {
           const isSaved = currentLessonId && Array.isArray(f.lessonIds) && f.lessonIds.includes(currentLessonId);
+          const emoji = f.emoji || f.icon || '📁';
+          const col = f.color || '#3B82F6';
           return `
             <div class="dropdown-item" onclick="assignCurrentLessonToFolder('${escHtml(f.id)}')">
               <div class="dropdown-item-info">
-                <div class="dropdown-item-title">${escHtml(f.icon || '📁')} ${escHtml(f.name)}</div>
+                <div class="dropdown-item-title">
+                  <span style="width:10px;height:10px;border-radius:50%;background:${escHtml(col)};display:inline-block;flex-shrink:0"></span>
+                  <span>${escHtml(emoji)} ${escHtml(f.name)}</span>
+                </div>
               </div>
               ${isSaved ? '<span style="color:var(--accent);font-weight:700;font-size:0.78rem">✓</span>' : ''}
             </div>
@@ -379,6 +414,7 @@ document.addEventListener('visibilitychange', () => {
         folder.lessonIds.push(currentLessonId);
         saveFolders(folders);
         renderFolders();
+        loadHistList();
         toast(`Lezione salvata in "${folder.name}"!`, 'ok');
       } else {
         toast(`Lezione già presente in "${folder.name}".`, 'ok');
@@ -917,7 +953,6 @@ document.addEventListener('visibilitychange', () => {
     function getHist() {
       try {
         const arr = JSON.parse(safeGet(HIST_KEY) || '[]');
-        // Assicura che ogni voce abbia un id univoco
         let mutated = false;
         arr.forEach((item, idx) => {
           if (!item.id) {
@@ -932,9 +967,24 @@ document.addEventListener('visibilitychange', () => {
       }
     }
 
+    // Trova la cartella associata a una lezione (se presente)
+    function findFolderForLesson(lessonId) {
+      if (!lessonId) return null;
+      const folders = getFolders();
+      if (activeFolderFilter) {
+        const activeF = folders.find(f => f.id === activeFolderFilter);
+        if (activeF && Array.isArray(activeF.lessonIds) && activeF.lessonIds.includes(lessonId)) {
+          return activeF;
+        }
+      }
+      return folders.find(f => Array.isArray(f.lessonIds) && f.lessonIds.includes(lessonId)) || null;
+    }
+
     function loadHistList() {
       const hist = getHist();
       const container = document.getElementById('history-list-container');
+      const isDark = document.body.classList.contains('dark-mode');
+
       if (container) {
         let filtered = hist.map((s, originalIdx) => ({ ...s, originalIdx }));
         if (activeFolderFilter) {
@@ -953,27 +1003,41 @@ document.addEventListener('visibilitychange', () => {
             </div>
           `;
         } else {
-          container.innerHTML = filtered.map(s => `
-            <div class="lesson-card" onclick="loadHist(${s.originalIdx})">
-              <div>
-                <div class="lesson-card-top">
-                  <span class="lesson-badge">${escHtml(s.subject || 'Lezione')}</span>
-                  <span class="lesson-date">${escHtml(s.date || '')}</span>
+          container.innerHTML = filtered.map(s => {
+            const folder = findFolderForLesson(s.id);
+            const col = folder?.color || null;
+            const cardStyle = col
+              ? `background:${hexToRgba(col, isDark ? 0.2 : 0.12)};border-color:${hexToRgba(col, 0.48)}`
+              : '';
+            const badgeStyle = col
+              ? `background:${hexToRgba(col, isDark ? 0.32 : 0.2)};color:${isDark ? '#F1F5F9' : col}`
+              : '';
+            const folderTag = folder
+              ? `<span style="font-size:0.75rem;margin-right:4px">${escHtml(folder.emoji || folder.icon || '📁')}</span>`
+              : '';
+
+            return `
+              <div class="lesson-card" style="${cardStyle}" onclick="loadHist(${s.originalIdx})">
+                <div>
+                  <div class="lesson-card-top">
+                    <span class="lesson-badge" style="${badgeStyle}">${folderTag}${escHtml(s.subject || 'Lezione')}</span>
+                    <span class="lesson-date">${escHtml(s.date || '')}</span>
+                  </div>
+                  <h3 style="margin-top:12px">${escHtml(s.title || 'Senza titolo')}</h3>
+                  <p style="margin-top:6px">${escHtml((s.data?.summary?.overview || '').slice(0, 110))}${(s.data?.summary?.overview || '').length > 110 ? '...' : ''}</p>
                 </div>
-                <h3 style="margin-top:12px">${escHtml(s.title || 'Senza titolo')}</h3>
-                <p style="margin-top:6px">${escHtml((s.data?.summary?.overview || '').slice(0, 110))}${(s.data?.summary?.overview || '').length > 110 ? '...' : ''}</p>
+                <div class="lesson-card-foot">
+                  <span style="${col && !isDark ? 'color:' + escHtml(col) : ''}">Apri appunti →</span>
+                  <button class="hist-btn" onclick="event.stopPropagation(); deleteHist(${s.originalIdx})" title="Elimina sessione">
+                    <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div class="lesson-card-foot">
-                <span>Apri appunti →</span>
-                <button class="hist-btn" onclick="event.stopPropagation(); deleteHist(${s.originalIdx})" title="Elimina sessione">
-                  <svg class="ico-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          `).join('');
+            `;
+          }).join('');
         }
       }
 
