@@ -137,6 +137,15 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+    // Avviso prima di uscire: se c'è una registrazione in corso o una bozza di trascrizione
+    window.addEventListener('beforeunload', (e) => {
+      const hasDraft = !!(finalTr || interimTr || pastedTr);
+      if (isRec || hasDraft) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
     function getDocFiles() { return uploadedFiles.filter(f => !f.isAudio); }
 
     // Ping keepalive: avvisa Flask che il browser è ancora aperto
@@ -176,6 +185,57 @@ document.addEventListener('visibilitychange', () => {
     function safeRemove(k) {
       try { localStorage.removeItem(k); }
       catch (e) { /* silenzioso */ }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  BACKUP TRASCRIZIONE — Auto-Save + Ripristino (Recovery)
+    //  La bozza in corso viene salvata periodicamente in localStorage
+    //  (chiave: lai_transcript_backup) e recuperata all'avvio se recente.
+    // ══════════════════════════════════════════════════════════════
+    const TRANS_BACKUP_KEY = 'lai_transcript_backup';
+    const TRANS_BACKUP_MAX_AGE = 3 * 60 * 60 * 1000; // backup scaduti dopo 3 ore
+
+    let _transBackupTimer = null;
+
+    function saveTranscriptBackup() {
+      const srcText = (tmode === 'text') ? (pastedTr || '') : ((finalTr || '') + (interimTr ? ' ' + interimTr : ''));
+      const txt = (srcText || '').trim();
+      if (!txt) return;
+      const payload = (tmode === 'text')
+        ? { final: srcText, interim: '', timestamp: Date.now() }
+        : { final: finalTr || '', interim: interimTr || '', timestamp: Date.now() };
+      safeSet(TRANS_BACKUP_KEY, JSON.stringify(payload));
+    }
+
+    function startTranscriptAutoSave() {
+      stopTranscriptAutoSave();
+      _transBackupTimer = setInterval(saveTranscriptBackup, 2000);
+    }
+    function stopTranscriptAutoSave() {
+      if (_transBackupTimer) { clearInterval(_transBackupTimer); _transBackupTimer = null; }
+    }
+
+    function recoverTranscriptBackup() {
+      const raw = safeGet(TRANS_BACKUP_KEY);
+      if (!raw) return false;
+      let obj = null;
+      try { obj = JSON.parse(raw); } catch (e) { safeRemove(TRANS_BACKUP_KEY); return false; }
+      const ts = obj ? obj.timestamp : null;
+      const fresh = ts && Number.isFinite(ts) && (Date.now() - ts) < TRANS_BACKUP_MAX_AGE;
+      const finalTxt = (fresh && obj && typeof obj.final === 'string') ? obj.final : '';
+      const interimTxt = (fresh && obj && typeof obj.interim === 'string') ? obj.interim : '';
+      if (!fresh || (!finalTxt && !interimTxt)) { safeRemove(TRANS_BACKUP_KEY); return false; }
+      finalTr = finalTxt;
+      interimTr = interimTxt;
+      if (tmode === 'text') {
+        pastedTr = finalTxt;
+        const tp = document.getElementById('tpaste');
+        if (tp) tp.value = finalTxt;
+      }
+      renderTbox();
+      chkBtn();
+      toast('✓ Trascrizione recuperata da un backup recente.', 'ok');
+      return true;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -596,6 +656,8 @@ document.addEventListener('visibilitychange', () => {
             : 'sk-... (platform.deepseek.com)';
       try { renderFolders(); } catch (e) { console.warn('[LectureAI] renderFolders fallito:', e); }
       try { loadHistList(); } catch (e) { console.warn('[LectureAI] loadHistList fallito:', e); }
+      try { recoverTranscriptBackup(); } catch (e) { console.warn('[LectureAI] Ripristino backup trascrizione fallito:', e); }
+      startTranscriptAutoSave();
     })();
 
     // ══════════════════════════════════════════════════════════════
@@ -1036,6 +1098,16 @@ document.addEventListener('visibilitychange', () => {
       chkBtn();
     }
 
+    function clearTranscript() {
+      finalTr = '';
+      interimTr = '';
+      pastedTr = '';
+      safeRemove(TRANS_BACKUP_KEY);
+      renderTbox();
+      chkBtn();
+      toast('Trascrizione svuotata.', 'ok');
+    }
+
     function copyTranscript() {
       let text = '';
       if (tmode === 'live') {
@@ -1048,6 +1120,7 @@ document.addEventListener('visibilitychange', () => {
 
       navigator.clipboard.writeText(text)
         .then(() => {
+          safeRemove(TRANS_BACKUP_KEY);
           const words = text.split(/\s+/).filter(Boolean).length;
           toast(`✓ Copiato (${words.toLocaleString('it')} parole)`, 'ok');
         })
@@ -1060,6 +1133,7 @@ document.addEventListener('visibilitychange', () => {
           ta.select();
           try {
             document.execCommand('copy');
+            safeRemove(TRANS_BACKUP_KEY);
             toast(`✓ Copiato`, 'ok');
           } catch (_) {
             toast('Impossibile copiare: ' + err.message, 'err');
@@ -1311,7 +1385,8 @@ document.addEventListener('visibilitychange', () => {
       if (!entry) return;
       lastData = entry.data;
       currentLessonId = entry.id;
-      if (entry.transcript) { finalTr = entry.transcript; renderTbox(); }
+      if (entry.transcript) { finalTr = entry.transcript; interimTr = ''; renderTbox(); }
+      safeRemove(TRANS_BACKUP_KEY);
       const lbl = document.getElementById('histDropdownLabel');
       if (lbl) lbl.textContent = entry.title || 'Cronologia appunti';
       closeAllDropdowns();
@@ -1951,6 +2026,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         }
 
         lastData = parsed;
+        safeRemove(TRANS_BACKUP_KEY);
         setOv('Renderizzando...', 94);
 
         await renderAll(parsed);
