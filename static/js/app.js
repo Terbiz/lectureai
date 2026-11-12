@@ -174,12 +174,13 @@ document.addEventListener('visibilitychange', () => {
       }
     }
     function safeSet(k, v) {
-      try { localStorage.setItem(k, v); }
+      try { localStorage.setItem(k, v); return true; }
       catch (e) {
         if (!_storageBlocked) {
           _storageBlocked = true;
-          console.warn('[LectureAI] localStorage bloccato (Safari ITP?)');
+          console.warn('[LectureAI] localStorage bloccato o pieno:', e);
         }
+        return false;
       }
     }
     function safeRemove(k) {
@@ -1366,11 +1367,16 @@ document.addEventListener('visibilitychange', () => {
       };
       hist.unshift(entry);
       if (hist.length > 30) hist.length = 30;
-      safeSet(HIST_KEY, JSON.stringify(hist));
+      if (!safeSet(HIST_KEY, JSON.stringify(hist))) {
+        currentLessonId = null;
+        toast('⚠ Memoria del browser piena: la lezione non è stata salvata in cronologia. Elimina le sessioni vecchie.', 'err');
+        return false;
+      }
       loadHistList();
       const lbl = document.getElementById('histDropdownLabel');
       if (lbl) lbl.textContent = entry.title;
       if (!silent) toast('✓ Sessione salvata in cronologia!', 'ok');
+      return true;
     }
 
     function loadHist(idxParam) {
@@ -1667,6 +1673,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
               if (res.status === 404 || res.status === 400) {
                 const j = await res.json().catch(() => ({}));
                 const msg = j.error?.message || '';
+                if (/API key not valid|API_KEY_INVALID/i.test(msg)) throw new Error('Chiave Gemini non valida.');
                 if (msg.includes('not found') || msg.includes('not supported') || res.status === 404) { lastErr = new Error(model + ': ' + msg); break; }
                 throw new Error('Errore Gemini: ' + (msg || 'richiesta non valida'));
               }
@@ -1712,9 +1719,11 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         }
       }
       _geminiModelsCache = null;
+      if (lastErr && !isOverloadMsg(lastErr.message)) throw new Error('Errore Gemini: ' + lastErr.message);
       throw new Error('Gemini è sovraccarico al momento. Riprova tra qualche minuto oppure passa su Anthropic Claude dal menu in alto. ' + (lastErr?.message || ''));
     }
 
+    const ANTHROPIC_MODEL = 'claude-opus-4-5';
     const ANT_RETRYABLE = new Set([429, 500, 502, 503, 529]);
     const ANT_MAX_RETRIES = 3;
 
@@ -1724,7 +1733,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const res = await fetch('/api/anthropic/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({ model: 'claude-opus-4-5', max_tokens: 16000, system: sys, messages: [{ role: 'user', content: userMsg }] })
+        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 16000, system: sys, messages: [{ role: 'user', content: userMsg }] })
       });
       if (!res.ok) {
         let e = 'Errore Anthropic (' + res.status + ')';
@@ -1814,7 +1823,6 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const fb = s.indexOf('{'), lb = s.lastIndexOf('}');
       if (fb === -1) throw new Error('Risposta AI non contiene JSON valido.');
       s = lb > fb ? s.slice(fb, lb + 1) : s.slice(fb);
-      try { return restoreLatex(JSON.parse(s)); } catch (_) { }
       let f = fixJsonEscapes(s);
       try { return restoreLatex(JSON.parse(f)); } catch (_) { }
       f = f.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
@@ -1826,6 +1834,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         _lastTruncated = true;
         return out;
       } catch (e) {
+        console.error('[parseJSON] risposta non leggibile, inizio:', raw.slice(0, 1200));
         throw new Error('Impossibile interpretare la risposta AI' + (_lastTruncated ? ' (sembra troncata per limite di lunghezza — riprova, o accorcia il materiale)' : '') + '.');
       }
     }
@@ -1871,18 +1880,35 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return s;
     }
 
+    // Comandi LaTeX che iniziano con b, f, n, r, t: senza raddoppiare il backslash
+    // JSON li leggerebbe come \b, \f, \n, \r, \t e corromperebbe la formula.
+    const LATEX_CMD_BFNRT = new Set(['beta', 'bar', 'bf', 'binom', 'frac', 'dfrac', 'tfrac', 'nabla', 'nu', 'neq', 'ni',
+      'rho', 'right', 'rightarrow', 'text', 'times', 'tan', 'theta', 'tau', 'tilde', 'to', 'therefore', 'tt', 'bigl', 'bigr', 'cdot', 'rm', 'bmod', 'bigm']);
+
     function fixJsonEscapes(s) {
       let out = '', inStr = false, i = 0;
+      // Una virgoletta chiude la stringa solo se è seguita da , } ] : (o fine testo)
+      const closesString = (pos) => {
+        let j = pos + 1;
+        while (j < s.length && /\s/.test(s[j])) j++;
+        return j >= s.length || ',}]:'.includes(s[j]);
+      };
       while (i < s.length) {
         const ch = s[i];
         if (!inStr) { if (ch === '"') { inStr = true; out += ch; i++; continue; } out += ch; i++; continue; }
         if (ch === '\\') {
           const nx = s[i + 1];
-          if (nx && '"\\\\/bfnrt'.includes(nx)) { out += ch + nx; i += 2; continue; }
+          const word = (s.slice(i + 1).match(/^[a-zA-Z]+/) || [''])[0];
+          const isLatex = !!nx && 'bfnrt'.includes(nx) && LATEX_CMD_BFNRT.has(word);
+          if (!isLatex && nx && '"\\\\/bfnrt'.includes(nx)) { out += ch + nx; i += 2; continue; }
           if (nx === 'u' && /[0-9a-fA-F]{4}/.test(s.slice(i + 2, i + 6))) { out += s.slice(i, i + 6); i += 6; continue; }
           out += '\\\\'; i++; continue;
         }
-        if (ch === '"') { inStr = false; out += ch; i++; continue; }
+        if (ch === '"') {
+          if (closesString(i)) { inStr = false; out += ch; i++; continue; }
+          // Virgoletta interna non escapata (es. class="callout"): la escapo
+          out += '\\"'; i++; continue;
+        }
         if (ch === '\n') { out += '\\n'; i++; continue; }
         if (ch === '\r') { out += '\\r'; i++; continue; }
         if (ch === '\t') { out += '\\t'; i++; continue; }
@@ -1895,6 +1921,18 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     //  TRASCRIZIONE AUDIO LUNGO (Gemini File API)
     // ══════════════════════════════════════════════════════════════
     
+    const INLINE_AUDIO_MAX = 20 * 1024 * 1024; // stesso limite di /api/transcribe
+
+    async function transcribeAudioViaServer(file, apiKey) {
+      const fd = new FormData();
+      fd.append('audio', file, file.name);
+      fd.append('key', apiKey);
+      const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error('Trascrizione fallita: ' + (data.error?.message || res.status));
+      return (data.text || '').trim();
+    }
+
     async function uploadAudioToGemini(file, apiKey) {
       const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
         method: 'POST',
@@ -1982,13 +2020,26 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         for (const af of audioFiles) {
           try {
             setOv('Caricamento audio su Gemini... (potrebbe richiedere qualche minuto per file grandi)', 5);
-            const mimeType = af.file.type || 'audio/mp4';
-            const fileUri = await uploadAudioToGemini(af.file, apiKey);
-            setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
-            const text = await transcribeAudioWithGemini(fileUri, mimeType, apiKey);
+            let text;
+            if (af.file.size <= INLINE_AUDIO_MAX) {
+              setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
+              text = await transcribeAudioViaServer(af.file, apiKey);
+            } else {
+              const mimeType = af.file.type || 'audio/mp4';
+              const fileUri = await uploadAudioToGemini(af.file, apiKey);
+              setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
+              text = await transcribeAudioWithGemini(fileUri, mimeType, apiKey);
+            }
             if (text) {
-              finalTr += (finalTr ? '\n\n' : '') + text + ' ';
-              renderTbox();
+              if (tmode === 'text') {
+                pastedTr += (pastedTr ? '\n\n' : '') + text + ' ';
+                const tp = document.getElementById('tpaste');
+                if (tp) tp.value = pastedTr;
+                onPasteInput();
+              } else {
+                finalTr += (finalTr ? '\n\n' : '') + text + ' ';
+                renderTbox();
+              }
             }
           } catch (err) {
             hideOv();
@@ -2030,10 +2081,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         setOv('Renderizzando...', 94);
 
         await renderAll(parsed);
-        saveHist(true);
+        const saved = saveHist(true);
         hideOv();
         document.getElementById('xbar').style.display = 'flex';
-        toast('✓ Appunti generati e salvati!', 'ok');
+        if (saved) toast('✓ Appunti generati e salvati!', 'ok');
         goToNotes();
         if (_lastTruncated) {
           setTimeout(() => toast('⚠️ Una risposta AI è arrivata troncata per limite di lunghezza: alcuni contenuti potrebbero essere incompleti. Ho recuperato quello che potevo.', 'err'), 3500);
@@ -2097,7 +2148,20 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       catch (e) { console.warn('KaTeX', e); }
     }
 
+    // Svuota le schede prima di un nuovo render, così non restano contenuti della lezione precedente
+    function resetPanes() {
+      ['notesEl', 'diagEl', 'summEl', 'flashEl'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+      });
+      ['e-notes', 'e-diagrams', 'e-summary', 'e-flash'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+      });
+    }
+
     async function renderAll(d) {
+      resetPanes();
       renderNotes(d);
       await renderDiags(d.diagrams || []);
       renderSumm(d.summary, d);
