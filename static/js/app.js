@@ -2005,6 +2005,58 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // ══════════════════════════════════════════════════════════════
     //  GENERATE
     // ══════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════
+    //  APPUNTI PERSONALI — non devono andare persi
+    //  1) vengono passati al modello come obbligatori
+    //  2) dopo la risposta, ogni punto non presente viene aggiunto in fondo
+    // ══════════════════════════════════════════════════════════════
+    function userNoteItems(text) {
+      return String(text || '').split(/\r?\n/)
+        .map(l => l.trim().replace(/^[-*•]\s+/, '').trim())
+        .filter(Boolean);
+    }
+
+    function normForMatch(s) {
+      return String(s || '').replace(/<[^>]+>/g, ' ').toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '');
+    }
+
+    function noteTokens(s) {
+      return normForMatch(s).match(/[a-z0-9\/]+/g) || [];
+    }
+
+    // Un punto è "coperto" se almeno il 70% delle sue parole significative compare nel testo generato
+    function noteIsCovered(item, outputHtml) {
+      const words = noteTokens(item).filter(t => t.length >= 3 || t.startsWith('/'));
+      if (!words.length) return true;
+      const present = new Set(noteTokens(outputHtml));
+      const hits = words.filter(w => present.has(w)).length;
+      return hits / words.length >= 0.7;
+    }
+
+    // Istruzione per il modello: formattare e integrare gli appunti, senza perdere informazioni
+    function notesBlock(items) {
+      const rule = 'ISTRUZIONE OBBLIGATORIA: il testo dell\'utente contiene appunti personali. '
+        + 'Ogni informazione (nomi, comandi, sigle, numeri, link, esempi) deve comparire negli appunti, '
+        + 'nella sezione pertinente. Puoi riformularli e formattarli (grassetto, elenchi, titoli), '
+        + 'ma non eliminare, non fondere e non generalizzare nessun punto.\n';
+      const total = items.reduce((a, i) => a + i.length, 0);
+      // Se il testo è lungo, la lista è già nella trascrizione: basta la regola
+      if (total > 4000) return rule + '\n';
+      return rule + items.map(i => '- ' + i).join('\n') + '\n\n';
+    }
+
+    function ensureUserNotes(parsed, items) {
+      if (!items.length) return parsed;
+      const html = parsed.notes_html || '';
+      const missing = items.filter(it => !noteIsCovered(it, html));
+      if (!missing.length) return parsed;
+      parsed.notes_html = html + '<h2>📝 I tuoi appunti</h2><ul>'
+        + missing.map(m => '<li>' + escHtml(m) + '</li>').join('') + '</ul>';
+      console.warn('[LectureAI] appunti utente aggiunti in fondo:', missing.length);
+      return parsed;
+    }
+
     async function generate() {
       const key = apiKey || document.getElementById('apiInput').value.trim();
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
@@ -2054,22 +2106,30 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const rawTr = (tmode === 'text' ? pastedTr : (finalTr + ' ' + interimTr)).trim();
       const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;
       const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
-      const isLong = wordCount > 9000;
+      // Gli appunti personali sono il testo della casella "Trascrizione / Testo" in modalità Testo:
+      // una riga = un punto che non deve andare perso
+      const notesItems = tmode === 'text' ? userNoteItems(pastedTr) : [];
+      // Soglia in caratteri: sopra questa lunghezza si usa il lavoro a blocchi (niente tagli silenziosi)
+      const isLong = hasTr && normMath(compressTranscript(rawTr)).length > 20000;
+      if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
 
       _lastTruncated = false;
       setOv('Preparando...', 5);
       try {
         let parsed;
-        if (isLong && hasTr) {
+        if (isLong) {
           toast(`Elaborazione a blocchi (${wordCount.toLocaleString()} parole)...`, 'ok');
-          parsed = await generateChunked(rawTr, hasPdf);
+          parsed = await generateChunked(rawTr, hasPdf, notesItems);
         } else {
+          const docChars = uploadedFiles.reduce((a, f) => a + (f.txt ? f.txt.length : 0), 0);
+          if (docChars > 36000) toast('Materiale molto lungo: una parte dei documenti non verrà letta.', 'err');
           setOv(
             provider === 'gemini' ? 'Chiamata Gemini...'
               : provider === 'anthropic' ? 'Chiamata Anthropic...'
                 : 'Chiamata DeepSeek...', 20);
-          parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf)));
+          parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems)));
         }
+        parsed = ensureUserNotes(parsed, notesItems);
         console.log('[LectureAI] Risposta AI parsata:', parsed);
         console.log('[LectureAI] Campi presenti:', Object.keys(parsed || {}).join(', '));
         if (!parsed.notes_html || !String(parsed.notes_html).trim()) {
@@ -2096,9 +2156,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
     }
 
-    function buildDirectMsg(rawTr, hasTr, hasPdf) {
-      const procTr = hasTr ? normMath(compressTranscript(rawTr)) : '';
-      const trTrunc = procTr.length > 20000 ? procTr.slice(0, 20000) + '\n[...troncata...]' : procTr;
+    function buildDirectMsg(rawTr, hasTr, hasPdf, notesItems) {
+      // Nessun taglio qui: la trascrizione è già sotto la soglia di elaborazione a blocchi
+      const trTrunc = hasTr ? normMath(compressTranscript(rawTr)) : '';
+      const notes = notesItems && notesItems.length ? notesBlock(notesItems) : '';
       let combinedDocs = '';
       if (hasPdf) {
         const budget = Math.floor(36000 / uploadedFiles.length);
@@ -2107,12 +2168,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           return '### Documento ' + (i + 1) + ': ' + f.name + '\n' + txt;
         }).join('\n\n---\n\n');
       }
-      if (hasTr && hasPdf) return 'Integra queste fonti in appunti universitari completi:\n\n## TRASCRIZIONE:\n' + trTrunc + '\n\n## MATERIALE:\n' + combinedDocs;
-      if (hasTr) return 'Trascrizione lezione:\n\n' + trTrunc;
-      return 'Genera appunti universitari da questo materiale:\n\n' + combinedDocs;
+      if (hasTr && hasPdf) return 'Integra queste fonti in appunti universitari completi:\n\n' + notes + '## TRASCRIZIONE:\n' + trTrunc + '\n\n## MATERIALE:\n' + combinedDocs;
+      if (hasTr) return 'Trascrizione lezione:\n\n' + notes + trTrunc;
+      if (hasPdf) return 'Genera appunti universitari da questo materiale:\n\n' + notes + combinedDocs;
+      return 'Genera appunti universitari dagli appunti dell\'utente:\n\n' + notes;
     }
 
-    async function generateChunked(rawTr, hasPdf) {
+    async function generateChunked(rawTr, hasPdf, notesItems) {
       const compressed = normMath(compressTranscript(rawTr));
       const chunks = splitChunks(compressed);
       const tot = chunks.length;
@@ -2136,7 +2198,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const pdfSec = hasPdf ? '\n\n## MATERIALE:\n' + uploadedFiles.map(f => f.name + ':\n' + f.txt.slice(0, 20000)).join('\n\n---\n\n') : '';
       const mergeMsg = `Riassunti di ${tot} segmenti (lezione ~${Math.round(rawTr.split(/\s+/).length)} parole):\n\n`
         + segs.map((s, i) => `### Segmento ${i + 1}:\n${(s.topics_covered || []).join(', ')}\n${(s.key_points || []).join(' | ')}\n${s.summary_text || ''}`).join('\n\n')
-        + pdfSec;
+        + pdfSec
+        + (notesItems && notesItems.length ? '\n\n' + notesBlock(notesItems) : '');
       return parseJSON(await callAI(mergeMsg, getSysMerge()));
     }
 
