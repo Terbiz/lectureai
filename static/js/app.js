@@ -1458,7 +1458,7 @@ Schema JSON:
   "subject": "Materia (disciplina accademica riconoscibile)",
   "key_topics": ["t1","t2","t3"],
   "pdf_alignment": "posizione nel PDF se presente, stringa vuota altrimenti",
-  "notes_html": "HTML con h2 (UNA sezione per ogni concetto/argomento distinto — anche 8-12 sezioni se servono, mai un blocco unico), h3 per sotto-punti, p per spiegazioni discorsive. Per elenchi di concetti/casi/esempi/intuizioni usa SEMPRE <ul><li><strong>Nome o Caso:</strong> spiegazione concisa.</li></ul> (grassetto sul termine prima dei due punti, stile glossario). Usa <em> per termini tecnici/gergali/citazioni. Formule matematiche in LaTeX SOLO se la disciplina le usa (\\( inline \\) e \\[ display \\]). Codice in <pre class='code-block'><code>...</code></pre> SOLO per materie tecniche. Note: <div class='callout'>. Concetti chiave isolati: <span class='key-concept'>. PDF ref: <div class='pdf-ref'>📄 p.X: ...</div>.",
+  "notes_md": "Markdown, NON HTML. ## per ogni concetto/argomento distinto (UNA sezione per argomento, anche 8-12 se servono, mai un blocco unico), ### per sotto-punti, testo discorsivo normale. Per elenchi di concetti/casi/esempi usa SEMPRE - **Nome o Caso:** spiegazione concisa (grassetto sul termine prima dei due punti). Usa *corsivo* per termini tecnici o citazioni. Codice in blocco di codice Markdown SOLO per materie tecniche. Note importanti: > [!note] testo (oppure [!warning], [!tip], [!example]). Formule matematiche in LaTeX SOLO se la disciplina le usa: inline tra $...$, display tra $$...$$. Nel JSON ogni backslash va raddoppiato (es. \\\\frac). Riferimenti al PDF: una riga che inizia con 📄 p.X: ...",
   "diagrams": [
     {"type":"flowchart","title":"Titolo","nodes":[{"id":"A","label":"Passo A","shape":"rect"},{"id":"B","label":"Condizione?","shape":"diamond"}],"edges":[{"from":"A","to":"B","label":""}]},
     {"type":"mindmap","title":"Mappa","root":"Argomento","children":[{"label":"Concetto A","children":[{"label":"Dettaglio 1"}]},{"label":"Concetto B","children":[]}]}
@@ -1480,7 +1480,7 @@ Schema JSON:
 - Min 2 diagrammi. Min 7 flashcard. Tutto in italiano.
 - Organizza SEMPRE in sezioni tematiche separate (un h2 per argomento), mai testo indistinto.
 
-PROCEDURA MENTALE OBBLIGATORIA prima di scrivere notes_html:
+PROCEDURA MENTALE OBBLIGATORIA prima di scrivere notes_md:
   1) Elenca mentalmente TUTTI i concetti/argomenti distinti della lezione.
   2) Per OGNI concetto, individua i RIFERIMENTI SPECIFICI che il professore ha citato:
      nomi propri (persone, autori, aziende, istituzioni), titoli di opere o progetti,
@@ -1602,7 +1602,7 @@ CONTESTO SPECIFICO: stai UNENDO i riassunti di più segmenti di una lezione lung
 Dall'insieme dei segmenti devi produrre UN UNICO documento che rispetti ESATTAMENTE
 lo schema JSON descritto sopra. Regole aggiuntive:
 
-- Il campo "notes_html" è OBBLIGATORIO e deve contenere gli appunti COMPLETI e ORGANICI.
+- Il campo "notes_md" è OBBLIGATORIO e deve contenere gli appunti COMPLETI e ORGANICI, in Markdown.
   Non lasciarlo vuoto, non ometterlo, non metterci un riassunto breve: è il corpo principale.
 
 - Min 2 diagrammi, min 10 flashcard.
@@ -2054,11 +2054,17 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
 
     function ensureUserNotes(parsed, items) {
       if (!items.length) return parsed;
-      const html = parsed.notes_html || '';
-      const missing = items.filter(it => !noteIsCovered(it, html));
+      const isMd = typeof parsed.notes_md === 'string' && parsed.notes_md.trim() !== '';
+      const text = isMd ? parsed.notes_md : (parsed.notes_html || '');
+      const missing = items.filter(it => !noteIsCovered(it, text));
       if (!missing.length) return parsed;
-      parsed.notes_html = html + '<h2>📝 I tuoi appunti</h2><ul>'
-        + missing.map(m => '<li>' + escHtml(m) + '</li>').join('') + '</ul>';
+      if (isMd) {
+        parsed.notes_md = parsed.notes_md.trimEnd() + '\n\n## 📝 I tuoi appunti\n\n'
+          + missing.map(m => '- ' + m).join('\n') + '\n';
+      } else {
+        parsed.notes_html = text + '<h2>📝 I tuoi appunti</h2><ul>'
+          + missing.map(m => '<li>' + escHtml(m) + '</li>').join('') + '</ul>';
+      }
       console.warn('[LectureAI] appunti utente aggiunti in fondo:', missing.length);
       return parsed;
     }
@@ -2142,8 +2148,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         parsed = ensureUserNotes(parsed, notesItems);
         console.log('[LectureAI] Risposta AI parsata:', parsed);
         console.log('[LectureAI] Campi presenti:', Object.keys(parsed || {}).join(', '));
-        if (!parsed.notes_html || !String(parsed.notes_html).trim()) {
-          console.warn('[LectureAI] ⚠️ notes_html vuoto o mancante!');
+        if (!String(parsed.notes_md || parsed.notes_html || '').trim()) {
+          console.warn('[LectureAI] ⚠️ notes_md vuoto o mancante!');
         }
 
         lastData = parsed;
@@ -2242,6 +2248,46 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       goTab('notes');
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  MARKDOWN → HTML per gli appunti (marked + DOMPurify da cdnjs)
+    //  Se le librerie non sono caricate, mostra il testo senza rompere la pagina.
+    // ══════════════════════════════════════════════════════════════
+    function mdEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    function mdToHtml(md) {
+      const src = String(md || '');
+      if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
+        return '<pre style="white-space:pre-wrap">' + mdEsc(src) + '</pre>';
+      }
+      // 1) Le formule non devono essere toccate da marked (_ e * dentro $...$)
+      const maths = [];
+      const protectedSrc = src.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, m => {
+        maths.push(m);
+        return 'MATHPH' + (maths.length - 1) + 'X';
+      });
+      // 2) Markdown → HTML
+      const html = marked.parse(protectedSrc);
+      // 3) Callout in stile Obsidian: > [!tipo] titolo → div.callout.callout-tipo
+      const doc = new DOMParser().parseFromString('<div id="root">' + html + '</div>', 'text/html');
+      doc.querySelectorAll('blockquote').forEach(bq => {
+        const first = bq.firstElementChild;
+        const m = first && first.textContent.match(/^\s*\[!(\w+)\]/);
+        if (!m) return;
+        const type = m[1].toLowerCase();
+        const node = first.firstChild;
+        if (node && node.nodeType === 3) node.textContent = node.textContent.replace(/^\s*\[!\w+\]\s*/, '');
+        const div = doc.createElement('div');
+        div.className = 'callout callout-' + type;
+        div.innerHTML = bq.innerHTML;
+        bq.replaceWith(div);
+      });
+      let out = doc.getElementById('root').innerHTML;
+      // 4) Ripristino le formule, escapate: KaTeX le legge dal testo della pagina
+      out = out.replace(/MATHPH(\d+)X/g, (_, i) => mdEsc(maths[+i]));
+      // 5) Sanificazione: niente script né attributi pericolosi
+      return DOMPurify.sanitize(out);
+    }
+
     function renderNotes(d) {
       document.getElementById('e-notes').style.display = 'none';
       const el = document.getElementById('notesEl'); el.style.display = 'block';
@@ -2254,7 +2300,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       if (sbSubj) sbSubj.textContent = d.subject || '—';
       if (sbDate) sbDate.textContent = new Date().toLocaleDateString('it-IT');
 
-      let body = d.notes_html || '';
+      // Appunti in Markdown (nuovo formato); notes_html resta per le lezioni salvate prima
+      let body = (typeof d.notes_md === 'string' && d.notes_md.trim()) ? mdToHtml(d.notes_md) : (d.notes_html || '');
 
       if (!body.trim()) {
         const s = d.summary || {};
@@ -2262,7 +2309,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         const defs = (s.definitions || []).map(x => '<li><strong>' + escHtml(x.term || '') + ':</strong> ' + escHtml(x.def || '') + '</li>').join('');
         const tops = (d.key_topics || []).map(t => '<span class="key-concept">' + escHtml(t) + '</span>').join(' ');
         let fb = '<div class="callout">'
-          + '<strong>⚠️ Il modello non ha restituito il campo <code>notes_html</code>.</strong><br>'
+          + '<strong>⚠️ Il modello non ha restituito il campo <code>notes_md</code>.</strong><br>'
           + 'Mostro qui sotto quello che era disponibile. Riprova la generazione per ottenere gli appunti completi.</div>';
         if (tops) fb += '<h2>Argomenti</h2><p>' + tops + '</p>';
         if (s.overview) fb += '<h2>Panoramica</h2><p>' + escHtml(s.overview) + '</p>';
@@ -2543,14 +2590,28 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       if (!lastData) return '';
       const d = lastData;
 
-      let md = '# ' + (d.title || 'Appunti') + '\n\n';
-      const meta = [];
-      if (d.subject) meta.push('**Materia:** ' + d.subject);
-      meta.push('**Data:** ' + dataCreazione());
-      meta.push('**Fonte:** LectureAI');
-      md += meta.join('  \n') + '\n\n---\n\n';
-
-      if (d.notes_html) md += htmlToMd(d.notes_html) + '\n\n';
+      let md = '';
+      if (typeof d.notes_md === 'string' && d.notes_md.trim()) {
+        // Formato Obsidian: frontmatter YAML + Markdown degli appunti così come generato
+        const q = v => '"' + String(v || '').replace(/"/g, '\\"') + '"';
+        md += '---\n';
+        md += 'title: ' + q(d.title || 'Appunti') + '\n';
+        if (d.subject) md += 'subject: ' + q(d.subject) + '\n';
+        md += 'date: ' + new Date().toISOString().slice(0, 10) + '\n';
+        md += 'source: LectureAI\n';
+        md += 'tags: [lectureai]\n';
+        md += '---\n\n';
+        md += '# ' + (d.title || 'Appunti') + '\n\n';
+        md += d.notes_md.trim() + '\n\n';
+      } else {
+        md += '# ' + (d.title || 'Appunti') + '\n\n';
+        const meta = [];
+        if (d.subject) meta.push('**Materia:** ' + d.subject);
+        meta.push('**Data:** ' + dataCreazione());
+        meta.push('**Fonte:** LectureAI');
+        md += meta.join('  \n') + '\n\n---\n\n';
+        if (d.notes_html) md += htmlToMd(d.notes_html) + '\n\n';
+      }
 
       const s = d.summary;
       if (s && (s.overview || (s.key_points || []).length || (s.definitions || []).length)) {
