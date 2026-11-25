@@ -1,83 +1,83 @@
 ---
 name: quando-usare-gli-elementi
-description: Applica quando devi decidere quale elemento Obsidian (callout, tabella, lista, formula, codice, link, evidenziazione) usare per un dato tipo di contenuto negli appunti.
-owner: da definire
-version: 1.0
+description: Regole per titoli, evidenze colorate e scelta dello strumento Obsidian giusto per ogni tipo di contenuto. Applicala sempre.
+version: 2.0
 targets: [app, obsidian]
 ---
-# Quando usare gli elementi
+# Come scrivere gli appunti
 
-## Obiettivo
-Scegliere per ogni tipo di contenuto l'elemento Obsidian più adatto, senza perdere informazioni.
+## 1. Titoli
+- Ogni `##` dice l'idea della sezione, non solo l'argomento.
+  ❌ `## Ricerca binaria` → ✅ `## La ricerca binaria dimezza lo spazio a ogni passo`
+- Il primo `##` non ripete il titolo della lezione.
+- Le sezioni seguono l'ordine della lezione. Usa `###` solo se la sezione ha almeno due sotto-punti.
+- Vietati i titoli fatti solo di parole generiche: "Introduzione", "Concetti chiave", "Principi", "Strategie", "Strumenti", "Conclusioni".
 
-## Quando applicarla
-- Stai trasformando testo grezzo in appunti strutturati.
-- Hai dubbi tra più elementi per lo stesso contenuto (callout o lista? tabella o elenco?).
-- Devi rendere coerente lo stile di appunti già scritti.
+## 2. Evidenze colorate
+| Colore | Uso |
+| --- | --- |
+| 🟢 | definizione o concetto chiave |
+| 🟡 | da ricordare per l'esame (regola, numero, criterio) |
+| 🔴 | errore comune o pericolo |
+| 🔵 | esempio o caso pratico |
+| 🟣 | approfondimento |
+| 🟠 | rimando a un'altra parte del corso |
 
-## Regole
-1. Individua il tipo di contenuto, poi usa l'elemento della tabella sotto.
-2. Evidenze colorate, OBBLIGATORIE: ogni sezione degli appunti usa almeno una evidenza `==...==` con il colore giusto. Colori con significato:
-   - `==🟢termine==` definizione o concetto chiave;
-   - `==🔴errore==` errore comune o pericolo;
-   - `==🟡...==` da ricordare per l'esame;
-   - `==🔵...==` esempio o caso pratico;
-   - `==🟣...==` approfondimento;
-   - `==🟠...==` rimando a un'altra parte del corso.
-   Al massimo una evidenza per paragrafo. In una lezione normale: almeno 3 evidenze in tutto.
-3. Mantieni integralmente i dati, le frasi e i numeri dell'utente: cambia solo la forma.
-4. Un callout per volta in sequenza; non annidarli senza necessità.
-5. Il tipo di callout deve corrispondere al significato (vedi tabella), non al gusto estetico.
-6. Per sintassi esatta di ogni elemento vedi `comandi-markdown`; per gli schemi vedi `schemi-mermaid`.
-7. Se il contenuto non rientra in nessun caso, usa un paragrafo normale e non inventare elementi.
+1. Evidenzia una frase di 2–12 parole che, letta da sola, riassume l'idea. Mai una parola singola.
+2. Mai su nomi di persone, aziende, app, siti o strumenti, e mai su un titolo.
+3. Massimo 1 evidenza per paragrafo o per elenco. Molti paragrafi non ne hanno nessuna.
+4. Quantità: circa 1 ogni 200 parole di appunti (1.000 parole → 4–6 evidenze).
+5. L'emoji va subito dopo `==`. Vietato `==testo==` senza colore.
+6. Usa soprattutto 🟢 e 🟡. Usa 🔴 solo se il professore segnala un errore, 🟠 solo se rimanda a un'altra lezione.
+7. Il grassetto non è un'evidenza: serve per il termine all'inizio di una voce di elenco o per un termine tecnico.
 
-## Formato di output
-### Per l'app
-Testo Markdown con gli elementi scelti. Gli schemi sono blocchi `mermaid` nel testo (vedi `schemi-mermaid`).
-### Per Obsidian
-Markdown Obsidian completo (callout, link `[[ ]]`, embed, tag, commenti). Tabella decisionale:
+## 3. Quale strumento per quale contenuto
+| Contenuto | Strumento |
+| --- | --- |
+| 3 o più elementi paralleli | elenco `- **Nome:** spiegazione` (mai voci con il solo grassetto) |
+| Passi in ordine | elenco numerato `1.` |
+| Catena causa → effetto, 2–4 passi senza decisioni | frecce su una riga a sé: `A → B → C` |
+| Processo più lungo, con decisioni, gerarchia, tempi | schema Mermaid (vedi `schemi-mermaid`) |
+| Confronto di due o più cose sugli stessi criteri | tabella |
+| Numeri da confrontare | tabella, con `--:` per allineare i numeri |
+| Esempio o aneddoto del professore | `> [!example] Titolo` |
+| Errore comune | `> [!failure]` o `> [!bug]`, con la correzione |
+| Avvertenza | `> [!warning]` (solo se grave: `> [!danger]`) |
+| Consiglio pratico | `> [!tip]` |
+| Precisazione importante | `> [!note]` o `> [!info]` |
+| Riepilogo di una sezione lunga | `> [!abstract]` in testa alla sezione |
+| Domanda di autoverifica | `> [!question]- Domanda` con la risposta nel corpo |
+| Citazione testuale | `> [!quote]` o `> testo` con la fonte |
+| Cose da fare o ripassare | task `- [ ]` |
+| Fonte, dettaglio, curiosità che interrompe il filo | nota a piè di pagina `[^1]` |
+| Concetto che merita una nota propria | link `[[Concetto]]` (la prima volta che compare) |
+| File, video o pagina citati | embed `![[...]]` o link `[testo](url)` |
+| Materia e argomenti | 1–3 tag in fondo: `#materia/argomento` |
+| Formula | `$...$` inline, `$$...$$` se isolata o lunga |
+| Codice | blocco con il linguaggio |
+| Contenuto superato o corretto dal professore | barrato `~~...~~` seguito dalla forma giusta |
 
-| Contenuto | Elemento da usare | Perché |
-| :-- | :-- | :-- |
-| Definizione | `> [!info] Termine` oppure `==termine==` nella frase | separa il concetto dal discorso; l'evidenziazione basta se la definizione è una frase |
-| Procedura a passi | Lista numerata `1.` (task `- [ ]` se si esegue) | l'ordine conta; per processi con decisioni, flowchart |
-| Confronto tra due cose | Tabella a due colonne | affianca gli stessi criteri riga per riga |
-| Esempio pratico | `> [!example] Titolo` | distingue il caso dalla teoria |
-| Errore comune | `> [!failure]` o `> [!bug]` con la correzione | segnala cosa NON fare |
-| Avvertenza importante | `> [!warning]` (grave: `> [!danger]`) | massima visibilità, usa un solo livello |
-| Formula | `$...$` inline, blocco `$$` se isolata o lunga | resa matematica corretta |
-| Codice | Blocco con linguaggio (` ```js `); inline con `` ` `` | mantiene formattazione e colori |
-| Dato numerico da confrontare | Tabella (confronto di trend: schema `xychart` o `pie`) | numeri allineati con `--:` |
-| Elenco di caratteristiche | Lista con `-` | elementi paralleli senza ordine |
-| Concetto da evidenziare | `==concetto==` (o `**grassetto**` se già evidenziato altrove) | una sola evidenza per paragrafo |
-| Riferimento a un'altra nota | `[[Nota]]`, `[[Nota#Titolo]]`, `[[Nota\|testo]]` in tabella | crea il collegamento nel grafo |
-| Domanda di autoverifica | `> [!question]- Domanda` con risposta nel corpo | resta chiusa finché si apre |
-| Riepilogo di sezione | `> [!abstract]` | sintesi in testa, senza sostituire il testo |
-| Suggerimento / trucco | `> [!tip]` | consiglio non vincolante |
-| Citazione | `> testo` + fonte, o `> [!quote]` | attribuzione chiara |
-| Cosa da fare / ripassare | `- [ ]` | spuntabile in lettura |
-| Nota marginale o fonte | Nota a piè `[^1]` | non interrompe il filo del testo |
-| Argomento trasversale | Tag `#materia/argomento` | ricerca e filtri |
-| Appunto personale nascosto | `%%testo%%` | visibile solo in modifica |
-| Materiale esterno | `![[Doc.pdf#page=3]]`, `![[foto.jpg]]`, `![](url)` | incorpora senza copiare |
-| Processo, gerarchia, classi, stati, tempi | Schema Mermaid | vedi `schemi-mermaid` |
+- Callout: massimo 1 per sezione, il tipo segue il significato e non l'estetica.
+- Paragrafi di 2–5 frasi.
+- Se un contenuto non rientra in nessun caso, usa un paragrafo normale.
+- Lo strumento cambia solo la forma: frasi, dati e numeri della lezione restano tutti.
 
 ## Esempio
-Input: «Il fattoriale n! è il prodotto da 1 a n. Errore frequente: dimenticare che 0! vale 1. Ad esempio 4! = 24.»
+Input (trascrizione):
+«la ricerca binaria funziona solo se l'array è ordinato... guardi l'elemento in mezzo, se è più grande vai a sinistra, se è più piccolo a destra... ogni volta dimezzi, quindi è logaritmica... errore tipico: usarla su dati non ordinati... con un milione di elementi bastano una ventina di confronti»
+
 Output:
 ```md
-Il fattoriale ==n!== è il prodotto dei numeri da 1 a $n$.
+## La ricerca binaria dimezza lo spazio a ogni passo
+
+La ricerca binaria confronta l'elemento centrale con quello cercato e prosegue nella metà giusta: ==🟢a ogni confronto lo spazio di ricerca si dimezza==.
+
+confronto con il centro → scelta della metà → nuovo centro
+
+Per questo la complessità è $O(\log n)$: con un milione di elementi bastano circa 20 confronti.[^1]
 
 > [!failure] Errore comune
-> Dimenticare che $0! = 1$.
+> Usarla su dati non ordinati: ==🔴funziona solo se l'array è ordinato==.
 
-> [!example] Esempio
-> $4! = 1\cdot2\cdot3\cdot4 = 24$
+[^1]: $\log_2 10^6 \approx 20$.
 ```
-
-## Da non fare
-- Non mettere due evidenze nello stesso paragrafo (es. `==a==` e `**b**`).
-- Non usare callout per testo ordinario né tabelle per un solo dato.
-- Non eliminare, riassumere o generalizzare le informazioni dell'utente.
-- Non usare `[!danger]` per avvertenze lievi: svaluta quelle vere.
-- Non inventare elementi o sintassi assenti dalle fonti: scrivi "da verificare".
