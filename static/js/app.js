@@ -2103,12 +2103,23 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return parsed;
     }
 
-    // Se gli schemi sono attivi ma la risposta non ne contiene, chiede di aggiungerne uno
-    function schemiRetryMsg(notesMd) {
+    // Controlli di qualità sugli appunti: restituisce ciò che manca
+    function notesQualityIssues(md) {
+      const t = String(md || '');
+      const issues = [];
+      if (t.length > 800 && (t.match(/==(🔴|🟠|🟡|🟢|🔵|🟣)/gu) || []).length < 3) {
+        issues.push('aggiungi almeno 3 evidenze colorate ==🔴...==, ==🟢...== ecc. secondo la skill quando-usare-gli-elementi');
+      }
+      if (skillSchemiOn && !/```mermaid/.test(t)) {
+        issues.push('aggiungi ALMENO uno schema Mermaid (blocco di codice con linguaggio mermaid) nella sezione pertinente');
+      }
+      return issues;
+    }
+
+    function qualityRetryMsg(notesMd, issues) {
       return 'Ecco gli appunti generati:\n\n' + notesMd
-        + '\n\nAggiungi ALMENO uno schema Mermaid pertinente (blocco di codice con linguaggio mermaid) nella sezione giusta. '
-        + 'Non cambiare, non eliminare e non riassumere il resto. Rispondi con il JSON completo, con tutti i campi, '
-        + 'e con notes_md che contiene anche lo schema.';
+        + '\n\nCorreggi questi punti: ' + issues.join('; ') + '. '
+        + 'Non cambiare, non eliminare e non riassumere il resto. Rispondi con il JSON completo, con tutti i campi.';
     }
 
     async function generate() {
@@ -2190,13 +2201,16 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems)));
         }
         parsed = ensureUserNotes(parsed, notesItems);
-        if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
-          setOv('Lo schema manca: chiedo alla AI di aggiungerlo...', 88);
+        const issues = notesQualityIssues(parsed.notes_md);
+        if (issues.length) {
+          setOv('Completo gli appunti (evidenze e schemi)...', 88);
           try {
-            const again = parseJSON(await callAI(schemiRetryMsg(parsed.notes_md || '')));
-            if (/```mermaid/.test(String(again.notes_md || ''))) parsed = ensureUserNotes(again, notesItems);
-          } catch (e) { console.warn('[schemi] nuovo tentativo fallito:', e.message); }
-          if (!/```mermaid/.test(String(parsed.notes_md || ''))) {
+            const again = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md || '', issues)));
+            if (String(again.notes_md || '').trim()) parsed = ensureUserNotes(again, notesItems);
+          } catch (e) { console.warn('[qualità] nuovo tentativo fallito:', e.message); }
+          const left = notesQualityIssues(parsed.notes_md);
+          if (left.length) console.warn('[qualità] ancora da migliorare:', left.join('; '));
+          if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
             toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');
           }
         }
@@ -2308,6 +2322,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // ══════════════════════════════════════════════════════════════
     function mdEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+    const HL_COLOR = { '🔴': 'red', '🟠': 'orange', '🟡': 'yellow', '🟢': 'green', '🔵': 'blue', '🟣': 'purple' };
+
     // Sintassi Obsidian → HTML per il sito (il Markdown salvato e l'esportazione restano invariati).
     // Applicata solo al testo: i blocchi di codice vengono lasciati intatti (vedi mdToHtml).
     function obsidianToWeb(t) {
@@ -2319,6 +2335,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         .replace(/!\[\[([^\]\n]+)\]\]/g, (_, n) => '<span class="ob-embed">📎 ' + mdEsc(n) + '</span>')
         .replace(/\[\[([^\]\n|]+)\|([^\]\n]+)\]\]/g, (_, a, b) => '<span class="ob-link">' + mdEsc(b) + '</span>')
         .replace(/\[\[([^\]\n]+)\]\]/g, (_, a) => '<span class="ob-link">' + mdEsc(a) + '</span>')
+        .replace(/==(🔴|🟠|🟡|🟢|🔵|🟣)([^=\n]+?)==/gu, (_, e, x) => '<mark class="hl-' + HL_COLOR[e] + '">' + x + '</mark>')
         .replace(/==([^=\n]+?)==/g, (_, x) => '<mark>' + x + '</mark>')
         // #tag: deve avere almeno una lettera, così #1 e i titoli "# Titolo" non vengono toccati
         .replace(/(^|\s)#(?=[^\s#]*[A-Za-zÀ-ÿ])([A-Za-z0-9_\-\/À-ÿ]+)/gm, (_, p, tag) => p + '<span class="ob-tag">#' + mdEsc(tag) + '</span>');
@@ -2416,7 +2433,11 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const nodes = el.querySelectorAll('div.mermaid');
       if (!nodes.length) return;
       const dark = document.body.classList.contains('dark-mode') || document.body.classList.contains('theme-dark');
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
+      mermaid.initialize({
+        startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default',
+        flowchart: { useMaxWidth: true, nodeSpacing: 40, rankSpacing: 45, padding: 10 },
+        themeVariables: { fontSize: '14px' }
+      });
       for (const n of nodes) {
         try { await mermaid.run({ nodes: [n] }); }
         catch (e) {
