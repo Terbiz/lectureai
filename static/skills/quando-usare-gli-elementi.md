@@ -17,7 +17,14 @@ Scegliere per ogni tipo di contenuto l'elemento Obsidian più adatto, senza perd
 
 ## Regole
 1. Individua il tipo di contenuto, poi usa l'elemento della tabella sotto.
-2. Al massimo una evidenza per paragrafo: un solo `==evidenziato==`, oppure un solo grassetto, oppure un solo callout.
+2. Evidenze colorate, OBBLIGATORIE: ogni sezione degli appunti usa almeno una evidenza `==...==` con il colore giusto. Colori con significato:
+   - `==🟢termine==` definizione o concetto chiave;
+   - `==🔴errore==` errore comune o pericolo;
+   - `==🟡...==` da ricordare per l'esame;
+   - `==🔵...==` esempio o caso pratico;
+   - `==🟣...==` approfondimento;
+   - `==🟠...==` rimando a un'altra parte del corso.
+   Al massimo una evidenza per paragrafo. In una lezione normale: almeno 3 evidenze in tutto.
 3. Mantieni integralmente i dati, le frasi e i numeri dell'utente: cambia solo la forma.
 4. Un callout per volta in sequenza; non annidarli senza necessità.
 5. Il tipo di callout deve corrispondere al significato (vedi tabella), non al gusto estetico.

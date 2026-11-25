@@ -2316,7 +2316,13 @@ pre.code-block {
 /* ── Skill, Mermaid, note a piè di pagina, video ── */
 .sk-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: .82rem; color: var(--text-muted); cursor: pointer; }
 .nc .mermaid { text-align: center; margin: 14px 0; overflow-x: auto; }
-.nc .mermaid svg { max-width: 100%; height: auto; }
+.nc .mermaid svg { max-width: 520px; width: 100%; height: auto; }
+.nc mark.hl-red { background: #FEE2E2; color: #7F1D1D; }
+.nc mark.hl-orange { background: #FFEDD5; color: #7C2D12; }
+.nc mark.hl-yellow { background: #FEF9C3; color: #713F12; }
+.nc mark.hl-green { background: #DCFCE7; color: #14532D; }
+.nc mark.hl-blue { background: #DBEAFE; color: #1E3A8A; }
+.nc mark.hl-purple { background: #F3E8FF; color: #581C87; }
 .nc sup a { color: var(--btn-primary); text-decoration: none; font-weight: 600; font-size: .75em; }
 .nc iframe { display: block; width: 100%; max-width: 560px; aspect-ratio: 16 / 9; height: auto; border: 0; border-radius: 10px; margin: 10px 0; }
 
