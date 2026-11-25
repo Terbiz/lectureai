@@ -1555,6 +1555,7 @@ Schema JSON (rispetta quest'ordine dei campi):
 ═══ 1. FEDELTÀ (priorità massima) ═══
 - La trascrizione è automatica e può contenere errori di riconoscimento vocale. Prima di scrivere notes_md, compila lecture_outline.
 - Se un termine è chiaramente la storpiatura di un termine noto e il contesto non lascia dubbi, scrivi il termine corretto e annotalo in termini_corretti.
+- Non correggere una parola storpiata trasformandola in un nome proprio (persona, azienda, prodotto) che il professore non nomina chiaramente altrove nella lezione, né in un termine di significato diverso: in questi casi usa [?].
 - Se non sei sicuro, riporta la forma sentita seguita da [?] e aggiungila a dubbi. Non indovinare.
 - Riporta i riferimenti specifici che il professore cita: nomi propri, titoli, date, numeri, sigle, casi, esempi, aneddoti (questi ultimi in 1-2 frasi). Non sostituirli con formule generiche come "alcuni autori sostengono".
 - Non aggiungere strumenti, autori, esempi o fonti che il professore non ha citato, anche se pertinenti.
@@ -1725,9 +1726,11 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     //  light: lavori lunghi ma semplici (trascrizione audio, riassunti dei segmenti)
     //  Le versioni 2.5 restano come ultimo ripiego se gli alias non sono disponibili per la chiave.
     // ══════════════════════════════════════════════════════════════
+    // Per i lavori impegnativi, prima di scendere al modello leggero si provano altri modelli Flash
+    // (il leggero scrive appunti più corti e perde dettagli). Quelli non disponibili vengono saltati.
     const GEM_TIERS = {
-      heavy: ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
-      light: ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+      heavy: ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'],
+      light: ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash']
     };
     let _geminiModelsCache = null;   // Set dei modelli disponibili per la chiave
     let _lastModel = '';             // modello che ha prodotto l'ultima risposta (salvato nella lezione)
@@ -1784,11 +1787,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       if (changed) safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
       return o;
     }
-    function gemBlock(model) {
+    // Senza durata: fino al reset giornaliero. Con durata (ms): per un tempo breve (es. modello lento)
+    function gemBlock(model, ms) {
       const o = gemBlocked();
-      o[model] = nextPacificMidnight();
+      o[model] = ms ? Date.now() + ms : nextPacificMidnight();
       safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
     }
+    const GEM_SLOW_SKIP_MS = 30 * 60 * 1000;   // un modello che non risponde in tempo viene saltato per 30 minuti
 
     // ── Annullamento della generazione ──
     let _genAbort = null;
@@ -1908,7 +1913,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
             }
             // Il modello non accetta il budget di ragionamento: stesso modello, senza
             if (res.status === 400 && opts.thinking && /think/i.test(msg)) { opts.thinking = false; attempt--; continue; }
-            if (res.status === 404 || /not found|not supported/i.test(msg)) {
+            if (res.status === 404 || /not found|not supported|no longer available/i.test(msg)) {
+              gemBlock(model);   // non riprovarlo a ogni chiamata: saltato fino al reset giornaliero
               failed = model; reason = 'modello non disponibile per questa chiave'; onlyOverload = false; break;
             }
             if (res.status === 429) {
@@ -1928,14 +1934,17 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
             }
             // Timeout del nostro server: la risposta era troppo lenta, si prova un altro modello
             if (res.status === 504 && /Timeout: il server Gemini/i.test(msg)) {
-              onlyOverload = false; failed = model; reason = 'risposta troppo lenta'; break;
+              gemBlock(model, GEM_SLOW_SKIP_MS);
+              onlyOverload = false; failed = model; reason = 'non ha risposto in tempo (saltato per 30 minuti)'; break;
             }
             if (GEM_RETRYABLE.has(res.status)) {
-              if (attempt < GEM_MAX_RETRIES_PER_MODEL) {
-                await waitWithCountdown(5000 * Math.pow(2, attempt) + Math.random() * 800, `${model} sovraccarico`);
+              // Sovraccarico: un solo nuovo tentativo, poi il modello successivo (saltando questo per 30 minuti)
+              if (attempt < 1) {
+                await waitWithCountdown(5000 + Math.random() * 800, `${model} sovraccarico`);
                 continue;
               }
-              failed = model; reason = 'sovraccarico'; break;
+              gemBlock(model, GEM_SLOW_SKIP_MS);
+              failed = model; reason = 'sovraccarico (saltato per 30 minuti)'; break;
             }
             // Altri errori (es. 400): si prova comunque il modello successivo
             onlyOverload = false; failed = model; reason = 'richiesta rifiutata (' + res.status + ')'; break;
