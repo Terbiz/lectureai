@@ -208,6 +208,7 @@ document.addEventListener('visibilitychange', () => {
 
     // Salva SEMPRE entrambe le caselle (trascrizione Live e testo), qualunque sia la modalità attiva
     function saveTranscriptBackup() {
+      syncTranscriptFromUI();
       const live = (finalTr || '') + (interimTr ? ' ' + interimTr : '');
       const text = pastedTr || '';
       if (!live.trim() && !text.trim()) { safeRemove(TRANS_BACKUP_KEY); return; }
@@ -812,7 +813,22 @@ document.addEventListener('visibilitychange', () => {
     }
     function rmFile(i) { uploadedFiles.splice(i, 1); renderFileList(); chkBtn(); }
 
+    // Allinea le variabili a ciò che si vede nelle caselle: dopo un ricaricamento il browser
+    // può rimettere il testo nella casella senza segnalarlo (nessun evento "input").
+    function syncTranscriptFromUI() {
+      if (isRec) return;   // durante la registrazione le variabili sono già la fonte aggiornata
+      const tp = document.getElementById('tpaste');
+      if (tp && tp.value !== pastedTr) pastedTr = tp.value;
+      // La casella Live è aggiornata solo in modalità Live: in modalità Testo potrebbe essere vecchia
+      const tbox = document.getElementById('tbox');
+      if (tmode === 'live' && tbox && !tbox.querySelector('.tbox-ph')) {
+        const visible = extractFinalText(tbox);
+        if (visible !== finalTr) finalTr = visible;
+      }
+    }
+
     function chkBtn() {
+      syncTranscriptFromUI();
       const hasTr = ((finalTr + interimTr + pastedTr).trim().length > 15);
       const hasPdf = uploadedFiles.length > 0;
       const b = document.getElementById('genBtn');
@@ -2336,6 +2352,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         renderFileList();
       }
 
+      // Si usa esattamente ciò che è visibile nelle caselle
+      syncTranscriptFromUI();
       // Due caselle: trascrizione live (finalTr) e testo incollato/scritto (pastedTr).
       // La casella di testo viene SEMPRE usata: se è piena sono appunti che non devono andare persi,
       // anche quando sei in modalità Live.
