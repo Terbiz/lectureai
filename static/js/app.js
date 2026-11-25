@@ -205,14 +205,30 @@ document.addEventListener('visibilitychange', () => {
     const TRANS_BACKUP_MAX_AGE = 3 * 60 * 60 * 1000; // backup scaduti dopo 3 ore
 
     let _transBackupTimer = null;
+    let _lastBackupSig = null;   // ultimo contenuto salvato da QUESTA scheda
 
-    // Salva SEMPRE entrambe le caselle (trascrizione Live e testo), qualunque sia la modalità attiva
+    function backupSig(live, interim, text) { return JSON.stringify([live || '', interim || '', text || '']); }
+
+    // Salva SEMPRE entrambe le caselle (trascrizione Live e testo), qualunque sia la modalità attiva.
+    // Con più schede aperte il backup è uno solo: una scheda lo scrive solo se il SUO contenuto è
+    // cambiato, oppure se il backup salvato è ancora il suo (per tenerlo aggiornato). Così una scheda
+    // vuota o vecchia non cancella né sovrascrive il lavoro fatto in un'altra.
     function saveTranscriptBackup() {
       syncTranscriptFromUI();
-      const live = (finalTr || '') + (interimTr ? ' ' + interimTr : '');
-      const text = pastedTr || '';
-      if (!live.trim() && !text.trim()) { safeRemove(TRANS_BACKUP_KEY); return; }
+      const sig = backupSig(finalTr, interimTr, pastedTr);
+      const empty = !((finalTr || '') + (interimTr || '') + (pastedTr || '')).trim();
+      let stored = null;
+      try { stored = JSON.parse(safeGet(TRANS_BACKUP_KEY) || 'null'); } catch (e) { stored = null; }
+      const storedSig = stored && stored.v === 2 ? backupSig(stored.live, stored.interim, stored.text) : null;
+      const changedHere = sig !== _lastBackupSig;
+      if (!changedHere && stored && storedSig !== sig) return;   // un'altra scheda ha salvato dopo: non toccare
+      _lastBackupSig = sig;
+      if (empty) {
+        if (changedHere && storedSig !== null) safeRemove(TRANS_BACKUP_KEY);   // svuotato qui dall'utente
+        return;
+      }
       safeSet(TRANS_BACKUP_KEY, JSON.stringify({
+        v: 2,
         live: finalTr || '',
         interim: interimTr || '',
         text: pastedTr || '',
@@ -222,10 +238,20 @@ document.addEventListener('visibilitychange', () => {
 
     function startTranscriptAutoSave() {
       stopTranscriptAutoSave();
+      // Punto di partenza: il contenuto attuale della scheda (dopo l'eventuale ripristino)
+      syncTranscriptFromUI();
+      _lastBackupSig = backupSig(finalTr, interimTr, pastedTr);
       _transBackupTimer = setInterval(saveTranscriptBackup, 2000);
     }
     function stopTranscriptAutoSave() {
       if (_transBackupTimer) { clearInterval(_transBackupTimer); _transBackupTimer = null; }
+    }
+
+    // Formato vecchio del backup ({final, interim}): conteneva solo la casella della modalità attiva.
+    // Più righe brevi = appunti scritti a mano (casella Testo); un blocco unico = trascrizione Live.
+    function looksLikeWrittenNotes(t) {
+      const lines = String(t || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      return lines.length >= 2 && lines.every(l => l.length <= 300);
     }
 
     function recoverTranscriptBackup() {
@@ -237,15 +263,23 @@ document.addEventListener('visibilitychange', () => {
       const fresh = ts && Number.isFinite(ts) && (Date.now() - ts) < TRANS_BACKUP_MAX_AGE;
       if (!fresh) { safeRemove(TRANS_BACKUP_KEY); return false; }
       const str = v => (typeof v === 'string' ? v : '');
-      // Formato nuovo: live + text. Formato vecchio (solo final/interim): lo trattiamo come trascrizione Live
-      const liveTxt = obj.live !== undefined ? str(obj.live) : str(obj.final);
+      let liveTxt, textTxt;
       const interimTxt = str(obj.interim);
-      const textTxt = str(obj.text);
+      if (obj.live !== undefined || obj.text !== undefined) {
+        liveTxt = str(obj.live);
+        textTxt = str(obj.text);
+      } else {
+        const f = str(obj.final);
+        if (!interimTxt.trim() && looksLikeWrittenNotes(f)) { liveTxt = ''; textTxt = f; }
+        else { liveTxt = f; textTxt = ''; }
+      }
       if (!liveTxt.trim() && !interimTxt.trim() && !textTxt.trim()) { safeRemove(TRANS_BACKUP_KEY); return false; }
+      // Non svuotare una casella che il browser ha già ripristinato da solo
+      const tp = document.getElementById('tpaste');
+      if (!textTxt.trim() && tp && tp.value.trim()) textTxt = tp.value;
       finalTr = liveTxt;
       interimTr = interimTxt;
       pastedTr = textTxt;
-      const tp = document.getElementById('tpaste');
       if (tp) tp.value = textTxt;
       renderTbox();
       onPasteInput();
@@ -1140,6 +1174,11 @@ document.addEventListener('visibilitychange', () => {
       finalTr = '';
       interimTr = '';
       pastedTr = '';
+      // Svuota anche la casella Testo: altrimenti il testo visibile tornerebbe nella generazione
+      const tp = document.getElementById('tpaste');
+      if (tp) tp.value = '';
+      const tpi = document.getElementById('tpaste-info');
+      if (tpi) tpi.textContent = '';
       safeRemove(TRANS_BACKUP_KEY);
       renderTbox();
       chkBtn();
