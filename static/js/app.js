@@ -198,14 +198,17 @@ document.addEventListener('visibilitychange', () => {
 
     let _transBackupTimer = null;
 
+    // Salva SEMPRE entrambe le caselle (trascrizione Live e testo), qualunque sia la modalità attiva
     function saveTranscriptBackup() {
-      const srcText = (tmode === 'text') ? (pastedTr || '') : ((finalTr || '') + (interimTr ? ' ' + interimTr : ''));
-      const txt = (srcText || '').trim();
-      if (!txt) return;
-      const payload = (tmode === 'text')
-        ? { final: srcText, interim: '', timestamp: Date.now() }
-        : { final: finalTr || '', interim: interimTr || '', timestamp: Date.now() };
-      safeSet(TRANS_BACKUP_KEY, JSON.stringify(payload));
+      const live = (finalTr || '') + (interimTr ? ' ' + interimTr : '');
+      const text = pastedTr || '';
+      if (!live.trim() && !text.trim()) { safeRemove(TRANS_BACKUP_KEY); return; }
+      safeSet(TRANS_BACKUP_KEY, JSON.stringify({
+        live: finalTr || '',
+        interim: interimTr || '',
+        text: pastedTr || '',
+        timestamp: Date.now()
+      }));
     }
 
     function startTranscriptAutoSave() {
@@ -223,19 +226,22 @@ document.addEventListener('visibilitychange', () => {
       try { obj = JSON.parse(raw); } catch (e) { safeRemove(TRANS_BACKUP_KEY); return false; }
       const ts = obj ? obj.timestamp : null;
       const fresh = ts && Number.isFinite(ts) && (Date.now() - ts) < TRANS_BACKUP_MAX_AGE;
-      const finalTxt = (fresh && obj && typeof obj.final === 'string') ? obj.final : '';
-      const interimTxt = (fresh && obj && typeof obj.interim === 'string') ? obj.interim : '';
-      if (!fresh || (!finalTxt && !interimTxt)) { safeRemove(TRANS_BACKUP_KEY); return false; }
-      finalTr = finalTxt;
+      if (!fresh) { safeRemove(TRANS_BACKUP_KEY); return false; }
+      const str = v => (typeof v === 'string' ? v : '');
+      // Formato nuovo: live + text. Formato vecchio (solo final/interim): lo trattiamo come trascrizione Live
+      const liveTxt = obj.live !== undefined ? str(obj.live) : str(obj.final);
+      const interimTxt = str(obj.interim);
+      const textTxt = str(obj.text);
+      if (!liveTxt.trim() && !interimTxt.trim() && !textTxt.trim()) { safeRemove(TRANS_BACKUP_KEY); return false; }
+      finalTr = liveTxt;
       interimTr = interimTxt;
-      if (tmode === 'text') {
-        pastedTr = finalTxt;
-        const tp = document.getElementById('tpaste');
-        if (tp) tp.value = finalTxt;
-      }
+      pastedTr = textTxt;
+      const tp = document.getElementById('tpaste');
+      if (tp) tp.value = textTxt;
       renderTbox();
+      onPasteInput();
       chkBtn();
-      toast('✓ Trascrizione recuperata da un backup recente.', 'ok');
+      toast('✓ Trascrizione e testo recuperati da un backup recente.', 'ok');
       return true;
     }
 
