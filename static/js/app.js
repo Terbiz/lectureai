@@ -2103,12 +2103,16 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         renderFileList();
       }
 
-      const rawTr = (tmode === 'text' ? pastedTr : (finalTr + ' ' + interimTr)).trim();
+      // Due caselle: trascrizione live (finalTr) e testo incollato/scritto (pastedTr).
+      // La casella di testo viene SEMPRE usata: se è piena sono appunti che non devono andare persi,
+      // anche quando sei in modalità Live.
+      const liveTr = (finalTr + ' ' + interimTr).trim();
+      const textTr = pastedTr.trim();
+      const rawTr = ((tmode === 'text' ? textTr : liveTr) || (tmode === 'text' ? liveTr : textTr)).trim();
       const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;
       const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
-      // Gli appunti personali sono il testo della casella "Trascrizione / Testo" in modalità Testo:
-      // una riga = un punto che non deve andare perso
-      const notesItems = tmode === 'text' ? userNoteItems(pastedTr) : [];
+      // Una riga della casella di testo = un punto che non deve andare perso
+      const notesItems = textTr ? userNoteItems(textTr) : [];
       // Soglia in caratteri: sopra questa lunghezza si usa il lavoro a blocchi (niente tagli silenziosi)
       const isLong = hasTr && normMath(compressTranscript(rawTr)).length > 20000;
       if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
