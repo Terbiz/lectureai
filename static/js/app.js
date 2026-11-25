@@ -1531,7 +1531,8 @@ Schema JSON (rispetta quest'ordine dei campi):
     "sequenza": ["argomenti nell'ordine in cui il professore li tratta"],
     "elenchi_numerati": ["ogni elenco di N elementi della lezione, es. N fasi: F1 ..., F2 ..., F3 ..."],
     "termini_corretti": [{"sentito":"forma trascritta","corretto":"termine corretto"}],
-    "dubbi": ["termini non riconoscibili, riportati come sentiti"]
+    "dubbi": ["termini non riconoscibili, riportati come sentiti"],
+    "riferimenti": ["ogni esempio, strumento, sito, persona, opera, numero, consiglio o avvertenza citati dal professore: 2-6 parole ciascuno, con le parole della lezione"]
   },
   "pdf_alignment": "posizione nel PDF se presente, stringa vuota altrimenti",
   "notes_md": "appunti in Markdown Obsidian che seguono lecture_outline, le regole sotto e le skill",
@@ -1565,7 +1566,7 @@ Schema JSON (rispetta quest'ordine dei campi):
 
 ═══ 2. STRUTTURA E FORMATO ═══
 - notes_md segue lecture_outline.sequenza: una sezione ## per argomento, nell'ordine della lezione (di solito 5-10 sezioni). Il titolo # lo aggiunge l'app.
-- Completezza: gli appunti coprono TUTTA la lezione, non sono un riassunto. Ogni passaggio, esempio, strumento, consiglio e avvertenza del professore ha il suo spazio. Come ordine di grandezza, gli appunti sono lunghi almeno un quarto della trascrizione.
+- Completezza: gli appunti coprono TUTTA la lezione, non sono un riassunto. Ogni passaggio, esempio, strumento, consiglio e avvertenza del professore ha il suo spazio: elencali in lecture_outline.riferimenti e assicurati che ognuno compaia negli appunti. Come ordine di grandezza, gli appunti sono lunghi almeno un quarto della trascrizione.
 - Se la lezione è costruita su una progressione (livelli, fasi, passi), quella è la spina dorsale degli appunti: ha una sezione sua e, se gli schemi sono attivi, uno schema.
 - Hai a disposizione tutta la sintassi di Obsidian descritta nelle skill (evidenze colorate, callout, tabelle, frecce, note a piè di pagina, link, tag, formule, codice, schemi). Usa ogni strumento quando rende gli appunti più chiari, scegliendolo come indicano le skill.
 - Scrivi in Markdown; l'HTML solo nei casi previsti dalla skill comandi-markdown.
@@ -1657,7 +1658,7 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
     const FINAL_CHECK = `
 
 ═══ CONTROLLO FINALE (prima di rispondere) ═══
-1. lecture_outline è compilato e ogni voce di "sequenza" ed "elenchi_numerati" compare negli appunti.
+1. lecture_outline è compilato e ogni voce di "sequenza", "elenchi_numerati" e "riferimenti" compare negli appunti.
 2. Nessuno strumento, autore o esempio aggiunto; i termini incerti hanno [?].
 3. Ogni ## dice un'idea; il primo ## non ripete il titolo.
 4. Evidenze: circa 1 ogni 200 parole, massimo 1 per paragrafo, sempre con l'emoji, mai su nomi propri o parole singole.
@@ -2467,19 +2468,58 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     const normText = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
     const mermaidBlocks = md => [...String(md || '').matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map(m => m[1]);
 
-    const NOTES_MIN_RATIO = 0.15;   // appunti più corti del 15% della trascrizione = mancano parti della lezione
     const TOO_SHORT_TAG = 'troppo brevi rispetto alla lezione';
+    const MISSING_REFS_TAG = 'citati a lezione mancano negli appunti';
 
-    function notesQualityIssues(md, title, srcLen) {
+    // ── Contesto per i controlli di contenuto (solo lezioni elaborate in una volta) ──
+    // minLen: lunghezza minima attesa, calcolata dal materiale. Conta le parole di contenuto DISTINTE
+    // della trascrizione: una lezione parlata ripete molto (poche parole distinte → soglia bassa),
+    // un testo scritto o una lezione densa ne ha molte (soglia alta). Limiti: 10%-40% del testo.
+    // refs: voci di lecture_outline.riferimenti che compaiono davvero nella trascrizione.
+    const NOTES_CHARS_PER_TERM = 6;
+    function expectedMinNotesLen(srcText) {
+      const len = srcText.length;
+      if (len < 8000) return 0;
+      const terms = new Set(noteTokens(srcText).filter(x => x.length >= 4 && !NOTE_STOPWORDS.has(x))).size;
+      return Math.round(Math.min(len * 0.40, Math.max(len * 0.10, terms * NOTES_CHARS_PER_TERM)));
+    }
+    // Un riferimento è presente se almeno il 60% delle sue parole significative compare nel testo
+    function refCovered(ref, text) {
+      const words = noteTokens(ref).filter(t => (t.length >= 3 || /\d/.test(t)) && !NOTE_STOPWORDS.has(t));
+      if (!words.length) return true;
+      const present = text instanceof Set ? text : new Set(noteTokens(text));
+      return words.filter(w => present.has(w)).length / words.length >= 0.6;
+    }
+    function buildQualityCtx(parsed, srcText) {
+      if (!srcText) return null;
+      const srcSet = new Set(noteTokens(srcText));
+      const refs = ((parsed.lecture_outline && Array.isArray(parsed.lecture_outline.riferimenti)) ? parsed.lecture_outline.riferimenti : [])
+        .map(r => String(r || '').trim()).filter(Boolean)
+        .filter(r => refCovered(r, srcSet))   // solo ciò che è davvero nella lezione (niente nomi inventati)
+        .slice(0, 60);
+      return { srcLen: srcText.length, minLen: expectedMinNotesLen(srcText), refs };
+    }
+    function missingRefs(md, ctx) {
+      if (!ctx || !ctx.refs || !ctx.refs.length) return [];
+      const present = new Set(noteTokens(md));
+      return ctx.refs.filter(r => !refCovered(r, present));
+    }
+
+    function notesQualityIssues(md, title, ctx) {
       const raw = String(md || '');
       const t = stripCode(raw);
       const words = (t.match(/\S+/g) || []).length;
       const issues = [];
 
-      // ── Lunghezza rispetto alla trascrizione (solo lezioni elaborate in una volta) ──
-      if (srcLen > 8000 && raw.length < srcLen * NOTES_MIN_RATIO) {
-        issues.push(`gli appunti sono ${TOO_SHORT_TAG} (${raw.length.toLocaleString('it-IT')} caratteri contro ${srcLen.toLocaleString('it-IT')} della trascrizione): `
+      // ── Contenuto: lunghezza attesa per questo materiale e riferimenti della lezione ──
+      if (ctx && ctx.minLen && raw.length < ctx.minLen) {
+        issues.push(`gli appunti sono ${TOO_SHORT_TAG} (${raw.length.toLocaleString('it-IT')} caratteri; per questo materiale ne servono almeno ${ctx.minLen.toLocaleString('it-IT')}): `
           + 'aggiungi nelle sezioni giuste, o in sezioni nuove, i passaggi, gli esempi, gli strumenti e i consigli della trascrizione che mancano. Non togliere nulla di ciò che c\'è');
+      }
+      const miss = missingRefs(raw, ctx);
+      if (miss.length) {
+        issues.push(`questi elementi ${MISSING_REFS_TAG}: «${miss.slice(0, 20).join('», «')}». `
+          + 'Aggiungili nella sezione pertinente, con i dettagli presi dalla trascrizione');
       }
 
       // ── Evidenze ──
@@ -2563,8 +2603,15 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return out;
     }
 
-    async function allNotesIssues(md, title, srcLen) {
-      return [...notesQualityIssues(md, title, srcLen), ...(await mermaidSyntaxIssues(md))];
+    async function allNotesIssues(md, title, ctx) {
+      return [...notesQualityIssues(md, title, ctx), ...(await mermaidSyntaxIssues(md))];
+    }
+    // Punteggio dei problemi: ogni riferimento mancante conta uno, così una correzione che ne aggiunge
+    // una parte viene riconosciuta come miglioramento
+    async function notesProblemScore(md, title, ctx) {
+      const issues = await allNotesIssues(md, title, ctx);
+      const miss = missingRefs(md, ctx).length;
+      return issues.length + (miss ? miss - 1 : 0);
     }
 
     // Correzione mirata: il modello riceve solo gli appunti e restituisce solo notes_md
@@ -2576,7 +2623,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     function qualityRetryMsg(notesMd, issues, transcript) {
-      const needsSource = !!transcript && issues.some(x => x.includes(TOO_SHORT_TAG));
+      const needsSource = !!transcript && issues.some(x => x.includes(TOO_SHORT_TAG) || x.includes(MISSING_REFS_TAG));
       return 'Problemi da correggere:\n- ' + issues.join('\n- ')
         + '\n\nCambia solo ciò che i problemi indicano. Tutto il resto deve restare identico.'
         + '\n\nAPPUNTI:\n' + notesMd
@@ -2584,12 +2631,12 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     // La correzione viene accettata solo se non toglie contenuto e riduce i problemi
-    async function acceptFix(oldMd, newMd, oldIssueCount, title, srcLen) {
+    async function acceptFix(oldMd, newMd, title, ctx) {
       const count = (s, re) => (s.match(re) || []).length;
       if (newMd.trim().length < oldMd.trim().length * 0.9) return false;            // ha tagliato contenuto
       if (count(newMd, /^##\s/gm) < count(oldMd, /^##\s/gm)) return false;          // ha tolto sezioni
       if (count(newMd, /```mermaid/g) < count(oldMd, /```mermaid/g)) return false;  // ha tolto schemi
-      return (await allNotesIssues(newMd, title, srcLen)).length < oldIssueCount;   // deve migliorare
+      return (await notesProblemScore(newMd, title, ctx)) < (await notesProblemScore(oldMd, title, ctx));   // deve migliorare
     }
 
     async function generate() {
@@ -2680,10 +2727,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         // 4) Controllo qualità e, se serve, una sola correzione mirata
         Prog.begin('controllo');
         setOv('Controllo di evidenze, titoli e schemi...');
-        // Confronto di lunghezza solo per le lezioni elaborate in una volta (non a blocchi)
+        // Controlli di contenuto solo per le lezioni elaborate in una volta (non a blocchi)
         const srcText = hasTr && !isLong ? normMath(compressTranscript(rawTr)) : '';
-        const srcLen = srcText.length;
-        const issues = await allNotesIssues(parsed.notes_md, parsed.title, srcLen);
+        const qctx = buildQualityCtx(parsed, srcText);
+        const issues = await allNotesIssues(parsed.notes_md, parsed.title, qctx);
         Prog.done('controllo', issues.length ? issues.length + ' punti da sistemare' : 'tutto a posto');
         if (issues.length && String(parsed.notes_md || '').trim()) {
           console.warn('[qualità] da correggere:', issues.join('; '));
@@ -2692,7 +2739,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           try {
             const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues, srcText), getSysFix(), { tier: 'heavy' }));
             const newMd = String(fixed.notes_md || '');
-            if (newMd && await acceptFix(parsed.notes_md, newMd, issues.length, parsed.title, srcLen)) {
+            if (newMd && await acceptFix(parsed.notes_md, newMd, parsed.title, qctx)) {
               parsed.notes_md = newMd;                       // cambia solo notes_md
               parsed = ensureUserNotes(parsed, notesItems);
               parsed.quality_fix = 'accettata';
@@ -2708,7 +2755,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
             console.warn('[qualità] correzione fallita:', e.message);
             Prog.fail('correzione', 'non riuscita: tengo la prima versione');
           }
-          const left = notesQualityIssues(parsed.notes_md, parsed.title, srcLen);
+          const left = notesQualityIssues(parsed.notes_md, parsed.title, qctx);
           if (left.length) console.warn('[qualità] ancora da migliorare:', left.join('; '));
           if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
             toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');
