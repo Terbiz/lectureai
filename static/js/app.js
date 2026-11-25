@@ -1729,14 +1729,23 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // Per i lavori impegnativi, prima di scendere al modello leggero si provano altri modelli Flash
     // (il leggero scrive appunti più corti e perde dettagli). Quelli non disponibili vengono saltati.
     const GEM_TIERS = {
-      heavy: ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'],
+      heavy: ['gemini-flash-latest', 'gemini-3-flash-preview', 'gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite'],
       light: ['gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash']
     };
     let _geminiModelsCache = null;   // Set dei modelli disponibili per la chiave
+    let _geminiModelsFp = '';        // chiave a cui si riferisce l'elenco
     let _lastModel = '';             // modello che ha prodotto l'ultima risposta (salvato nella lezione)
 
+    // Impronta della chiave (non reversibile): separa per chiave i dati sui modelli senza salvarla
+    function keyFp(k) {
+      let h = 2166136261;
+      for (const c of String(k || '')) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+      return (h >>> 0).toString(16);
+    }
+
     async function discoverGeminiModels() {
-      if (_geminiModelsCache) return _geminiModelsCache;
+      if (_geminiModelsCache && _geminiModelsFp === keyFp(apiKey)) return _geminiModelsCache;
+      _geminiModelsCache = null;
       try {
         const res = await fetch('/api/gemini-models', { headers: { 'X-Api-Key': apiKey }, signal: genSignal() });
         if (res.ok) {
@@ -1744,7 +1753,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           const names = (data.models || [])
             .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
             .map(m => m.name.replace('models/', ''));
-          if (names.length) { _geminiModelsCache = new Set(names); return _geminiModelsCache; }
+          if (names.length) { _geminiModelsCache = new Set(names); _geminiModelsFp = keyFp(apiKey); return _geminiModelsCache; }
         }
       } catch (e) { if (isAbort(e)) throw e; console.warn('[Gemini models]', e); }
       return null;   // elenco non disponibile: si provano comunque i modelli del livello
@@ -1778,20 +1787,92 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     function gemResetTime() {
       return new Date(nextPacificMidnight()).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
     }
+    // I limiti dipendono dalla chiave (dal suo progetto): i modelli saltati sono salvati per chiave,
+    // così con una chiave nuova si riparte da zero. Formato: { impronta: { modello: scadenza } }
+    function gemBlockedAll() {
+      let all = {};
+      try { all = JSON.parse(safeGet(GEM_BLOCK_KEY) || '{}') || {}; } catch (e) { all = {}; }
+      // Formato vecchio (un solo elenco per tutto il browser): scartato
+      if (Object.values(all).some(v => typeof v === 'number')) all = {};
+      return all;
+    }
     function gemBlocked() {
-      let o = {};
-      try { o = JSON.parse(safeGet(GEM_BLOCK_KEY) || '{}') || {}; } catch (e) { o = {}; }
+      const all = gemBlockedAll();
+      const fp = keyFp(apiKey);
+      const o = all[fp] || {};
       const now = Date.now();
       let changed = false;
       for (const k of Object.keys(o)) if (!(o[k] > now)) { delete o[k]; changed = true; }
-      if (changed) safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
+      if (changed) { all[fp] = o; safeSet(GEM_BLOCK_KEY, JSON.stringify(all)); }
       return o;
     }
     // Senza durata: fino al reset giornaliero. Con durata (ms): per un tempo breve (es. modello lento)
     function gemBlock(model, ms) {
+      const all = gemBlockedAll();
+      const fp = keyFp(apiKey);
       const o = gemBlocked();
       o[model] = ms ? Date.now() + ms : nextPacificMidnight();
-      safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
+      all[fp] = o;
+      safeSet(GEM_BLOCK_KEY, JSON.stringify(all));
+      _gemHealthy.delete(fp + '|' + model);
+    }
+
+    // ── Prova rapida dei modelli per i lavori impegnativi ──
+    // Alcuni modelli (es. 3.8 Flash sul piano gratuito) possono restare fermi per minuti: prima di
+    // affidargli gli appunti si manda una richiesta minima con un tempo massimo breve.
+    const GEM_PROBE_TIMEOUT_MS = 25000;
+    const GEM_HEALTHY_MS = 20 * 60 * 1000;   // un modello che ha risposto da poco non si riprova
+    const _gemHealthy = new Map();           // impronta|modello → ultimo successo
+    function gemMarkHealthy(model) { _gemHealthy.set(keyFp(apiKey) + '|' + model, Date.now()); }
+    function gemIsHealthy(model) {
+      const t = _gemHealthy.get(keyFp(apiKey) + '|' + model);
+      return !!t && Date.now() - t < GEM_HEALTHY_MS;
+    }
+    // Restituisce '' se il modello si può usare, altrimenti il motivo per saltarlo
+    async function gemProbe(model) {
+      if (gemIsHealthy(model)) return '';
+      throwIfAborted();
+      Prog.model(model);
+      Prog.note('Controllo rapido del modello...');
+      const ctrl = new AbortController();
+      const outer = genSignal();
+      const onAbort = () => ctrl.abort();
+      if (outer) outer.addEventListener('abort', onAbort);
+      let timedOut = false;
+      const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, GEM_PROBE_TIMEOUT_MS);
+      const t0 = Date.now();
+      try {
+        const res = await fetch(`/api/gemini/${model}:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Rispondi solo: ok' }] }] }),
+          signal: ctrl.signal
+        });
+        const j = await res.json().catch(() => ({}));
+        const msg = String(j.error?.message || '');
+        apiLog({ step: 'Controllo modello', model, ver: j.modelVersion || '', outcome: res.ok ? 'ok' : 'errore',
+          http: res.status, ms: Date.now() - t0, msg: res.ok ? 'disponibile' : msg.slice(0, 300) });
+        if (res.ok) { gemMarkHealthy(model); return ''; }
+        if (res.status === 401 || res.status === 403 || /API key not valid|API_KEY_INVALID/i.test(msg)) throw new Error('Chiave Gemini non valida.');
+        if (res.status === 404 || /not found|not supported|no longer available/i.test(msg)) { gemBlock(model); return 'modello non disponibile per questa chiave'; }
+        if (res.status === 429 && (/limit:\s*0\b/.test(msg) || geminiDailyQuota(j))) {
+          gemBlock(model);
+          return /limit:\s*0\b/.test(msg) ? 'non incluso nel piano di questa chiave' : 'limite giornaliero raggiunto';
+        }
+        if (res.status === 503 || res.status === 500 || res.status === 504) { gemBlock(model, GEM_SLOW_SKIP_MS); return 'sovraccarico (saltato per 30 minuti)'; }
+        return '';   // altri casi (es. limite al minuto): li gestisce la richiesta vera
+      } catch (e) {
+        if (outer && outer.aborted) throw e;   // annullato dall'utente
+        if (e.message === 'Chiave Gemini non valida.') throw e;
+        // Errore di rete diverso dal tempo scaduto: decide la richiesta vera, senza saltare il modello
+        if (!timedOut) { apiLog({ step: 'Controllo modello', model, outcome: 'errore', ms: Date.now() - t0, msg: e.message }); return ''; }
+        gemBlock(model, GEM_SLOW_SKIP_MS);
+        apiLog({ step: 'Controllo modello', model, outcome: 'errore', ms: Date.now() - t0, msg: 'nessuna risposta in ' + (GEM_PROBE_TIMEOUT_MS / 1000) + ' s' });
+        return 'non risponde (saltato per 30 minuti)';
+      } finally {
+        clearTimeout(timer);
+        if (outer) outer.removeEventListener('abort', onAbort);
+        Prog.note('');
+      }
     }
     const GEM_SLOW_SKIP_MS = 30 * 60 * 1000;   // un modello che non risponde in tempo viene saltato per 30 minuti
 
@@ -1863,8 +1944,9 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
 
     // Esegue una richiesta Gemini provando i modelli del livello, con attese e cambi automatici.
     //   send(model, opts) → Promise<Response>      extract(json, model) → risultato (lancia se vuoto)
-    async function geminiRun(tier, send, extract) {
+    async function geminiRun(tier, send, extract, opts) {
       const models = await geminiCandidates(tier);
+      const probe = !!(opts && opts.probe);
       let lastErr = null, failed = null, reason = '';
 
       for (let pass = 1; pass <= GEM_MAX_PASSES; pass++) {
@@ -1872,6 +1954,11 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         for (const model of models) {
           if (failed && failed !== model) gemSwitchNotice(failed, model, reason);
           failed = null;
+          // Prova rapida (solo lavori impegnativi e se ci sono alternative): evita attese di minuti
+          if (probe && model !== models[models.length - 1]) {
+            const why = await gemProbe(model);
+            if (why) { failed = model; reason = why; lastErr = new Error(model + ': ' + why); continue; }
+          }
           const opts = { thinking: true };
           for (let attempt = 0; attempt <= GEM_MAX_RETRIES_PER_MODEL; attempt++) {
             throwIfAborted();
@@ -1896,6 +1983,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
                 apiLog({ model, ver: j.modelVersion || '', outcome: 'ok', http: res.status, ms,
                   tin: u.promptTokenCount || 0, tout: u.candidatesTokenCount || 0, tthink: u.thoughtsTokenCount || 0 });
                 _lastModel = model + (j.modelVersion && j.modelVersion !== model ? ' (' + j.modelVersion + ')' : '');
+                gemMarkHealthy(model);
                 return out;
               } catch (e) {
                 lastErr = new Error(model + ': ' + e.message);
@@ -1988,7 +2076,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           console.warn('[Gemini] risposta troncata per MAX_TOKENS');
         }
         return raw;
-      });
+      }, { probe: tier === 'heavy' });
     }
 
     const ANTHROPIC_MODEL = 'claude-opus-4-5';
