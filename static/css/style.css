@@ -2296,6 +2296,19 @@ pre.code-block {
   height: 6px;
 }
 
+/* ── Appunti in Markdown: codice, tabelle, citazioni e callout ── */
+.nc code { font-family: 'JetBrains Mono', monospace; background: var(--bg-main); padding: 1px 6px; border-radius: 4px; font-size: .85em; }
+.nc pre { background: #0F172A; color: #E2E8F0; padding: 14px 18px; border-radius: 10px; overflow-x: auto; margin: 12px 0; font-size: .8rem; line-height: 1.7; }
+.nc pre code { background: none; padding: 0; color: inherit; }
+.nc table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .88rem; }
+.nc th, .nc td { border: 1px solid var(--border-color); padding: 6px 10px; text-align: left; }
+.nc th { background: var(--bg-main); }
+.nc blockquote { border-left: 4px solid var(--btn-primary); padding: 8px 14px; margin: 12px 0; background: var(--primary-soft); }
+.callout.callout-warning { border-left-color: #EF4444; }
+.callout.callout-tip { border-left-color: #22C55E; }
+.callout.callout-example { border-left-color: #0EA5E9; }
+.callout.callout-important { border-left-color: #F59E0B; }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 10px;
