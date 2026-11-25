@@ -179,6 +179,9 @@
             <textarea class="tbox tpaste" id="tpaste" placeholder="Incolla o trascina qui il tuo testo..." style="display:none" oninput="onPasteInput()" ondragover="event.preventDefault()" ondrop="onTextDrop(event)" ondragenter="this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')"></textarea>
             <div id="tpaste-info" style="display:none;font-size:.72rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:6px"></div>
 
+            <label class="sk-toggle" title="Aggiunge agli appunti schemi e grafici Mermaid">
+              <input type="checkbox" id="skSchemi" onchange="onSkillToggle()"> Schemi e grafici (Mermaid)
+            </label>
             <button class="gbtn" id="genBtn" onclick="generate()" disabled>Genera Appunti</button>
           </div>
         </div>
@@ -512,6 +515,7 @@
   <!-- Toast notifiche -->
   <div class="toast" id="toast"></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.17.2/mermaid.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>

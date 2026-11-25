@@ -109,6 +109,13 @@
     const FOLDER_PALETTE = ['#3B82F6', '#22C55E', '#8B5CF6', '#F59E0B', '#EC4899', '#06B6D4'];
     let _lastTruncated = false;
     let _micStream = null;
+    // Skill (istruzioni di formato) caricate da static/skills/
+    const SKILL_BASE = ['comandi-markdown.md', 'quando-usare-gli-elementi.md']; // sempre attive
+    const SKILL_GRAFICI = ['schemi-mermaid.md', 'schemi-mermaid-avanzati.md'];   // opzionali
+    const SKILL_SCHEMI_KEY = 'lai_skill_schemi';
+    let SKILL_TEXT = {};
+    let skillSchemiOn = safeGet(SKILL_SCHEMI_KEY) === 'true';
+    let skillsReady = Promise.resolve();
 
     // Gestione sospensione pagina (iPad/iPhone)
 document.addEventListener('visibilitychange', () => {
@@ -665,6 +672,9 @@ document.addEventListener('visibilitychange', () => {
       try { loadHistList(); } catch (e) { console.warn('[LectureAI] loadHistList fallito:', e); }
       try { recoverTranscriptBackup(); } catch (e) { console.warn('[LectureAI] Ripristino backup trascrizione fallito:', e); }
       startTranscriptAutoSave();
+      skillsReady = loadSkills();
+      const skEl = document.getElementById('skSchemi');
+      if (skEl) skEl.checked = skillSchemiOn;
     })();
 
     // ══════════════════════════════════════════════════════════════
@@ -1450,7 +1460,7 @@ document.addEventListener('visibilitychange', () => {
     const BASE_SYS = `Sei un assistente accademico universitario MULTIDISCIPLINARE.
 Genera appunti universitari completi e precisi ma sintetici, ADATTANDO il formato
 alla disciplina della lezione. Rispondi ESCLUSIVAMENTE con JSON valido.
-ZERO testo fuori dal JSON. ZERO backtick markdown.
+ZERO testo fuori dal JSON. Nessun recinto di codice attorno al JSON.
 
 Schema JSON:
 {
@@ -1592,7 +1602,31 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
       return customPanel || PRESET_PANELS[activePreset] || PRESET_PANELS[DEFAULT_PRESET];
     }
     function getSys() {
-      return BASE_SYS.replace('{DISCIPLINE_PANEL}', getPanel());
+      return BASE_SYS.replace('{DISCIPLINE_PANEL}', getPanel()) + getSkillsBlock();
+    }
+
+    async function loadSkills() {
+      await Promise.all([...SKILL_BASE, ...SKILL_GRAFICI].map(async n => {
+        try {
+          const r = await fetch('/static/skills/' + n);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          SKILL_TEXT[n] = (await r.text()).replace(/^---[\s\S]*?---\s*/, '');
+        } catch (e) { console.warn('[skill] non caricata:', n, e.message); }
+      }));
+    }
+
+    function getSkillsBlock() {
+      const names = skillSchemiOn ? [...SKILL_BASE, ...SKILL_GRAFICI] : SKILL_BASE;
+      const parts = names.filter(n => SKILL_TEXT[n]).map(n => '═══ SKILL: ' + n.replace(/\.md$/, '') + ' ═══\n' + SKILL_TEXT[n]);
+      if (!parts.length) return '';
+      let out = '\n\n' + parts.join('\n\n');
+      if (skillSchemiOn) out += '\n\nNOTA: con le skill degli schemi attive, gli schemi vanno nel testo come blocchi mermaid e il campo "diagrams" resta []. Non applicare la regola "Min 2 diagrammi" al campo diagrams.';
+      return out;
+    }
+
+    function onSkillToggle() {
+      skillSchemiOn = !!document.getElementById('skSchemi').checked;
+      safeSet(SKILL_SCHEMI_KEY, String(skillSchemiOn));
     }
     function getSysMerge() {
       return getSys() + `
@@ -2130,6 +2164,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const isLong = hasTr && normMath(compressTranscript(rawTr)).length > 20000;
       if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
 
+      await skillsReady;
       _lastTruncated = false;
       setOv('Preparando...', 5);
       try {
@@ -2260,6 +2295,9 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     function obsidianToWeb(t) {
       return t
         .replace(/%%[\s\S]*?%%/g, '')                                                   // commenti: nascosti, come in Obsidian
+        // video di YouTube (link ![](url)) → player incorporato
+        .replace(/!\[[^\]]*\]\(https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([A-Za-z0-9_-]{6,20})[^)]*\)/g, (_, id) => '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '" width="560" height="315" allowfullscreen></iframe>')
+        .replace(/!\[[^\]]*\]\(https?:\/\/youtu\.be\/([A-Za-z0-9_-]{6,20})[^)]*\)/g, (_, id) => '<iframe src="https://www.youtube-nocookie.com/embed/' + id + '" width="560" height="315" allowfullscreen></iframe>')
         .replace(/!\[\[([^\]\n]+)\]\]/g, (_, n) => '<span class="ob-embed">📎 ' + mdEsc(n) + '</span>')
         .replace(/\[\[([^\]\n|]+)\|([^\]\n]+)\]\]/g, (_, a, b) => '<span class="ob-link">' + mdEsc(b) + '</span>')
         .replace(/\[\[([^\]\n]+)\]\]/g, (_, a) => '<span class="ob-link">' + mdEsc(a) + '</span>')
@@ -2268,25 +2306,64 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         .replace(/(^|\s)#(?=[^\s#]*[A-Za-zÀ-ÿ])([A-Za-z0-9_\-\/À-ÿ]+)/gm, (_, p, tag) => p + '<span class="ob-tag">#' + mdEsc(tag) + '</span>');
     }
 
+    // Note a piè di pagina [^id]: le definizioni vengono tolte dal testo e messe in fondo, in ordine di comparsa
+    function extractFootnotes(src) {
+      const defs = {};
+      const out = [];
+      const lines = src.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^\[\^([^\]\s]+)\]:\s?(.*)$/);
+        if (!m) { out.push(lines[i]); continue; }
+        let text = m[2];
+        while (i + 1 < lines.length && /^ {2,}\S/.test(lines[i + 1])) { text += ' ' + lines[i + 1].trim(); i++; }
+        defs[m[1]] = text;
+      }
+      return { body: out.join('\n'), defs };
+    }
+
+    // Iframe consentiti solo verso player video noti; tutto il resto viene tolto
+    const MD_IFRAME_OK = /^https:\/\/(www\.youtube-nocookie\.com|www\.youtube\.com|player\.vimeo\.com)\//;
+    let _mdHookSet = false;
+    function mdSanitize(html) {
+      if (!_mdHookSet) {
+        DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+          if (node.nodeName === 'IFRAME' && data.attrName === 'src' && !MD_IFRAME_OK.test(data.attrValue)) data.keepAttr = false;
+        });
+        _mdHookSet = true;
+      }
+      return DOMPurify.sanitize(html, { ADD_TAGS: ['iframe'], ADD_ATTR: ['allowfullscreen', 'frameborder', 'allow', 'width', 'height'] });
+    }
+
     function mdToHtml(md) {
       const src = String(md || '');
       if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
         return '<pre style="white-space:pre-wrap">' + mdEsc(src) + '</pre>';
       }
-      // 1) Codice (blocchi e inline) intatto; nel resto: sintassi Obsidian e formule protette
-      //    (le formule non devono essere toccate da marked: _ e * dentro $...$)
+      // Le formule non devono essere toccate da marked (_ e * dentro $...$)
       const maths = [];
-      const pieces = src.split(/(```[\s\S]*?```|`[^`\n]+`)/); // indici dispari = codice
-      const protectedSrc = pieces.map((seg, i) => {
+      const pipeText = seg => obsidianToWeb(seg).replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, m => {
+        maths.push(m);
+        return 'MATHPH' + (maths.length - 1) + 'X';
+      });
+      const fn = extractFootnotes(src);
+      const order = [];
+      const refNum = id => { let k = order.indexOf(id); if (k < 0) { order.push(id); k = order.length - 1; } return k + 1; };
+      // Codice (blocchi e inline) intatto; nel resto: sintassi Obsidian, note e formule
+      const pieces = fn.body.split(/(```[\s\S]*?```|`[^`\n]+`)/); // indici dispari = codice
+      let protectedSrc = pieces.map((seg, i) => {
         if (i % 2 === 1) return seg;
-        return obsidianToWeb(seg).replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, m => {
-          maths.push(m);
-          return 'MATHPH' + (maths.length - 1) + 'X';
-        });
+        const withRefs = seg.replace(/\[\^([^\]\s]+)\](?!:)/g, (m, id) => (
+          Object.prototype.hasOwnProperty.call(fn.defs, id)
+            ? '<sup><a href="#fn-' + refNum(id) + '">' + refNum(id) + '</a></sup>'
+            : m));
+        return pipeText(withRefs);
       }).join('');
-      // 2) Markdown → HTML
+      if (order.length) {
+        protectedSrc += '\n\n---\n\n' + order.map((id, i) => (i + 1) + '. <a id="fn-' + (i + 1) + '"></a>' + pipeText(fn.defs[id])).join('\n') + '\n';
+      }
+      // Markdown → HTML
       const html = marked.parse(protectedSrc);
-      // 3) Callout in stile Obsidian: > [!tipo] titolo → div.callout.callout-tipo
+      // Callout in stile Obsidian: > [!tipo][+-] titolo → div.callout.callout-tipo
       const doc = new DOMParser().parseFromString('<div id="root">' + html + '</div>', 'text/html');
       doc.querySelectorAll('blockquote').forEach(bq => {
         const first = bq.firstElementChild;
@@ -2300,11 +2377,37 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         div.innerHTML = bq.innerHTML;
         bq.replaceWith(div);
       });
+      // Blocchi ```mermaid → contenitori che disegneremo con Mermaid
+      doc.querySelectorAll('pre > code.language-mermaid').forEach(code => {
+        const s = code.textContent;
+        const div = doc.createElement('div');
+        div.className = 'mermaid';
+        div.dataset.src = s;
+        div.textContent = s;
+        code.parentElement.replaceWith(div);
+      });
       let out = doc.getElementById('root').innerHTML;
-      // 4) Ripristino le formule, escapate: KaTeX le legge dal testo della pagina
+      // Ripristino le formule, escapate: KaTeX le legge dal testo della pagina
       out = out.replace(/MATHPH(\d+)X/g, (_, i) => mdEsc(maths[+i]));
-      // 5) Sanificazione: niente script né attributi pericolosi
-      return DOMPurify.sanitize(out);
+      return mdSanitize(out);
+    }
+
+    // Disegna i blocchi Mermaid; se uno non è valido, mostra il codice sorgente
+    async function renderMermaidIn(el) {
+      if (typeof mermaid === 'undefined') return;
+      const nodes = el.querySelectorAll('div.mermaid');
+      if (!nodes.length) return;
+      const dark = document.body.classList.contains('dark-mode') || document.body.classList.contains('theme-dark');
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' });
+      for (const n of nodes) {
+        try { await mermaid.run({ nodes: [n] }); }
+        catch (e) {
+          const pre = document.createElement('pre');
+          pre.textContent = n.dataset.src || '';
+          n.replaceWith(pre);
+          console.warn('[mermaid] schema non disegnabile:', e && e.message);
+        }
+      }
     }
 
     function renderNotes(d) {
@@ -2346,6 +2449,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         + '<div class="sub">' + escHtml(d.subject || '') + ' · ' + new Date().toLocaleDateString('it-IT') + '</div>'
         + pdfB + body;
       rK(el);
+      renderMermaidIn(el);
     }
 
     // ── SVG DIAGRAMS ──────────────────────────────────────────────
