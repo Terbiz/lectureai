@@ -2103,6 +2103,14 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return parsed;
     }
 
+    // Se gli schemi sono attivi ma la risposta non ne contiene, chiede di aggiungerne uno
+    function schemiRetryMsg(notesMd) {
+      return 'Ecco gli appunti generati:\n\n' + notesMd
+        + '\n\nAggiungi ALMENO uno schema Mermaid pertinente (blocco di codice con linguaggio mermaid) nella sezione giusta. '
+        + 'Non cambiare, non eliminare e non riassumere il resto. Rispondi con il JSON completo, con tutti i campi, '
+        + 'e con notes_md che contiene anche lo schema.';
+    }
+
     async function generate() {
       const key = apiKey || document.getElementById('apiInput').value.trim();
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
@@ -2182,6 +2190,16 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems)));
         }
         parsed = ensureUserNotes(parsed, notesItems);
+        if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
+          setOv('Lo schema manca: chiedo alla AI di aggiungerlo...', 88);
+          try {
+            const again = parseJSON(await callAI(schemiRetryMsg(parsed.notes_md || '')));
+            if (/```mermaid/.test(String(again.notes_md || ''))) parsed = ensureUserNotes(again, notesItems);
+          } catch (e) { console.warn('[schemi] nuovo tentativo fallito:', e.message); }
+          if (!/```mermaid/.test(String(parsed.notes_md || ''))) {
+            toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');
+          }
+        }
         console.log('[LectureAI] Risposta AI parsata:', parsed);
         console.log('[LectureAI] Campi presenti:', Object.keys(parsed || {}).join(', '));
         if (!String(parsed.notes_md || parsed.notes_html || '').trim()) {
