@@ -492,6 +492,22 @@
           Quello che modifichi qui è il <b>pannello disciplina</b>, cioè le istruzioni specifiche
           per il tipo di corso.
         </div>
+
+        <!-- Registro delle chiamate AI: nascosto di norma, per chi vuole vedere cosa succede -->
+        <details class="setRow apiLogDetails" ontoggle="if (this.open) renderApiLog()">
+          <summary class="lbl">🔧 Registro chiamate AI <span class="apiLogTag">per esperti</span></summary>
+          <div class="setHint">
+            Ogni chiamata ai modelli: esito, modello effettivo, durata e token usati.
+            I dati restano solo in questo browser. "Verifica modelli" usa una richiesta per ciascun modello.
+          </div>
+          <div class="apiLogBtns">
+            <button type="button" class="xbtn" onclick="checkGeminiModels()">Verifica modelli</button>
+            <button type="button" class="xbtn" onclick="copyApiLog()">Copia</button>
+            <button type="button" class="xbtn" onclick="clearApiLog()">Svuota</button>
+          </div>
+          <div id="apiLogSummary" class="apiLogSummary"></div>
+          <div id="apiLogBox" class="apiLogBox"></div>
+        </details>
       </div>
       <div class="settingsFoot">
         <button class="xbtn" onclick="resetPresetEdit()">Ripristina preset</button>
@@ -506,10 +522,12 @@
   <div class="ov" id="ov">
     <div class="sp"></div>
     <div class="ov-t">Elaborazione...</div>
+    <ol class="ov-steps" id="ovSteps"></ol>
     <div class="ov-s" id="ovS">Analizzando con AI</div>
     <div class="prog">
       <div class="bar" id="bar"></div>
     </div>
+    <button type="button" class="ov-cancel" id="ovCancel" style="display:none" onclick="cancelGeneration()">Annulla</button>
   </div>
 
   <!-- Toast notifiche -->

@@ -8,6 +8,7 @@ LectureAI — Flask backend
 from flask import Flask, render_template, request, jsonify, Response
 import requests
 import base64
+import re
 import threading
 import webbrowser
 import time
@@ -69,7 +70,7 @@ def proxy_gemini(model_path):
     api_key = _gemini_key()
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_path}'
     try:
-        resp = requests.post(url, json=request.get_json(), headers={'x-goog-api-key': api_key}, timeout=120)
+        resp = requests.post(url, json=request.get_json(), headers={'x-goog-api-key': api_key}, timeout=170)
         return Response(
             resp.content,
             status=resp.status_code,
@@ -182,11 +183,17 @@ def transcribe_audio():
     if not api_key:
         return jsonify({'error': {'message': 'API key mancante.'}}), 401
 
+    # Modello scelto dal sito (alias "latest" o versione precisa); solo caratteri ammessi nei nomi dei modelli
+    model = request.form.get('model', '') or 'gemini-flash-lite-latest'
+    if not re.fullmatch(r'[a-z0-9.\-]{3,60}', model):
+        return jsonify({'error': {'message': 'Nome del modello non valido.'}}), 400
+
     audio_data = file.read()
-    
-    # Gemini ha un limite di ~20MB per l'audio inline. 
-    if len(audio_data) > 20 * 1024 * 1024:
-        return jsonify({'error': {'message': 'File audio troppo grande (max 20MB).'}}), 413
+
+    # La richiesta a Gemini può essere al massimo 20 MB e il Base64 aumenta il file di un terzo:
+    # oltre 14 MB il sito usa il caricamento tramite File API.
+    if len(audio_data) > 14 * 1024 * 1024:
+        return jsonify({'error': {'message': "File audio troppo grande per l'invio diretto (max 14 MB)."}}), 413
 
     audio_b64 = base64.b64encode(audio_data).decode('utf-8')
     mime_type = file.content_type or ''
@@ -217,15 +224,20 @@ def transcribe_audio():
 
     try:
         resp = requests.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-            json=body, headers={'x-goog-api-key': api_key}, timeout=180
+            f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+            json=body, headers={'x-goog-api-key': api_key}, timeout=170
         )
         if not resp.ok:
             return Response(resp.content, status=resp.status_code, content_type='application/json')
         
         data = resp.json()
-        text = data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
-        return jsonify({'text': text.strip()})
+        parts = (data.get('candidates') or [{}])[0].get('content', {}).get('parts', [])
+        text = ''.join(p.get('text', '') for p in parts if not p.get('thought'))
+        return jsonify({'text': text.strip(),
+                        'usageMetadata': data.get('usageMetadata', {}),
+                        'modelVersion': data.get('modelVersion', '')})
+    except requests.exceptions.Timeout:
+        return jsonify({'error': {'message': 'Timeout: il server Gemini non ha risposto in tempo.'}}), 504
     except Exception as e:
         return jsonify({'error': {'message': str(e)}}), 500
 

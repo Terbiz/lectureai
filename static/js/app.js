@@ -1679,42 +1679,106 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // ══════════════════════════════════════════════════════════════
     //  API CALLS — passano per il proxy Flask locale (niente CORS)
     // ══════════════════════════════════════════════════════════════
-    let _geminiModelsCache = null;
-    let _lastModel = '';   // modello che ha prodotto l'ultima risposta (salvato nella lezione)
-
-    // Ordine di prova dei modelli: versione più recente e stabile prima; lite e pro solo come ripiego
-    // 2.5-flash → 3-flash-preview → 2.0-flash → 2.5-flash-lite → 2.5-pro → 2.0-flash-lite
-    function geminiScore(name) {
-      const m = name.match(/gemini-(\d+(?:\.\d+)?)/);
-      let v = m ? parseFloat(m[1]) * 100 : 0;
-      if (/lite/i.test(name)) v -= 120;
-      else if (/pro/i.test(name)) v -= 160;          // quote gratuite basse e risposte lente
-      if (/preview|exp/i.test(name)) v -= 60;        // anteprime dopo le versioni stabili
-      return v;
-    }
+    // ══════════════════════════════════════════════════════════════
+    //  MODELLI GEMINI PER LIVELLO DI LAVORO
+    //  Si usano gli alias di Google ("latest"), che puntano sempre all'ultima versione disponibile.
+    //  heavy: lavori impegnativi (appunti, unione dei segmenti, correzione)
+    //  light: lavori lunghi ma semplici (trascrizione audio, riassunti dei segmenti)
+    //  Le versioni 2.5 restano come ultimo ripiego se gli alias non sono disponibili per la chiave.
+    // ══════════════════════════════════════════════════════════════
+    const GEM_TIERS = {
+      heavy: ['gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+      light: ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+    };
+    let _geminiModelsCache = null;   // Set dei modelli disponibili per la chiave
+    let _lastModel = '';             // modello che ha prodotto l'ultima risposta (salvato nella lezione)
 
     async function discoverGeminiModels() {
       if (_geminiModelsCache) return _geminiModelsCache;
       try {
-        const res = await fetch('/api/gemini-models', { headers: { 'X-Api-Key': apiKey } });
-        if (!res.ok) return ['gemini-2.5-flash', 'gemini-2.0-flash'];
-        const data = await res.json();
-        const valid = (data.models || [])
-          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-          .filter(m => /gemini-[23]/i.test(m.name))
-          .filter(m => !/(tts|image|live|audio|embedding|vision|learnlm|robotics|computer-use)/i.test(m.name))
-          .map(m => m.name.replace('models/', ''))
-          .sort((a, b) => geminiScore(b) - geminiScore(a));
-        if (valid.length) { _geminiModelsCache = valid; return valid; }
-      } catch (e) { console.warn('[Gemini models]', e); }
-      return ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+        const res = await fetch('/api/gemini-models', { headers: { 'X-Api-Key': apiKey }, signal: genSignal() });
+        if (res.ok) {
+          const data = await res.json();
+          const names = (data.models || [])
+            .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+            .map(m => m.name.replace('models/', ''));
+          if (names.length) { _geminiModelsCache = new Set(names); return _geminiModelsCache; }
+        }
+      } catch (e) { if (isAbort(e)) throw e; console.warn('[Gemini models]', e); }
+      return null;   // elenco non disponibile: si provano comunque i modelli del livello
+    }
+
+    // Modelli da provare per un livello: disponibili per la chiave e non esauriti per oggi
+    async function geminiCandidates(tier) {
+      const avail = await discoverGeminiModels();
+      let list = GEM_TIERS[tier] || GEM_TIERS.heavy;
+      if (avail) { const ok = list.filter(m => avail.has(m)); if (ok.length) list = ok; }
+      const blocked = gemBlocked();
+      const open = list.filter(m => !blocked[m]);
+      return open.length ? open : list;   // se oggi sono tutti esauriti si riprova comunque
+    }
+
+    // ── Modelli esauriti per oggi (limite giornaliero o non inclusi nel piano) ──
+    // I limiti giornalieri di Google si azzerano a mezzanotte, ora del Pacifico.
+    const GEM_BLOCK_KEY = 'lai_gem_blocked';
+    function nextPacificMidnight() {
+      try {
+        const now = Date.now();
+        const p = {};
+        new Intl.DateTimeFormat('en-US', {
+          timeZone: 'America/Los_Angeles', year: 'numeric', month: 'numeric', day: 'numeric',
+          hour: 'numeric', minute: 'numeric', second: 'numeric', hourCycle: 'h23'
+        }).formatToParts(new Date(now)).forEach(x => { if (x.type !== 'literal') p[x.type] = +x.value; });
+        const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - now;
+        return Date.UTC(p.year, p.month - 1, p.day + 1, 0, 0, 0) - offset;
+      } catch (e) { return Date.now() + 24 * 3600 * 1000; }
+    }
+    function gemResetTime() {
+      return new Date(nextPacificMidnight()).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    }
+    function gemBlocked() {
+      let o = {};
+      try { o = JSON.parse(safeGet(GEM_BLOCK_KEY) || '{}') || {}; } catch (e) { o = {}; }
+      const now = Date.now();
+      let changed = false;
+      for (const k of Object.keys(o)) if (!(o[k] > now)) { delete o[k]; changed = true; }
+      if (changed) safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
+      return o;
+    }
+    function gemBlock(model) {
+      const o = gemBlocked();
+      o[model] = nextPacificMidnight();
+      safeSet(GEM_BLOCK_KEY, JSON.stringify(o));
+    }
+
+    // ── Annullamento della generazione ──
+    let _genAbort = null;
+    function genSignal() { return _genAbort ? _genAbort.signal : undefined; }
+    function isAbort(e) { return !!e && (e.name === 'AbortError' || e.message === 'ANNULLATO'); }
+    function throwIfAborted() {
+      if (_genAbort && _genAbort.signal.aborted) { const e = new Error('ANNULLATO'); e.name = 'AbortError'; throw e; }
+    }
+
+    // ── Registro delle chiamate (visibile nelle Impostazioni) ──
+    const API_LOG_KEY = 'lai_api_log';
+    const API_LOG_MAX = 300;
+    function readApiLog() {
+      try { const a = JSON.parse(safeGet(API_LOG_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+    }
+    function apiLog(entry) {
+      let arr = readApiLog();
+      arr.push(Object.assign({ t: Date.now(), step: Prog.currentLabel() }, entry));
+      if (arr.length > API_LOG_MAX) arr = arr.slice(-API_LOG_MAX);
+      safeSet(API_LOG_KEY, JSON.stringify(arr));
+      const box = document.getElementById('apiLogBox');
+      if (box && box.closest('details') && box.closest('details').open) renderApiLog();
     }
 
     const GEM_RETRYABLE = new Set([429, 500, 502, 503, 504]);
     const GEM_MAX_RETRIES_PER_MODEL = 2;   // nuovi tentativi sullo stesso modello, poi si passa al successivo
     const GEM_MAX_PASSES = 2;
     const GEM_MAX_WAIT_MS = 60000;
-    function isOverloadMsg(m) { return /overload|UNAVAILABLE|RESOURCE_EXHAUSTED|sovraccaric/i.test(m || ''); }
+    function isOverloadMsg(m) { return /overload|UNAVAILABLE|sovraccaric/i.test(m || ''); }
 
     // Attesa suggerita da Gemini nella risposta 429 (RetryInfo.retryDelay, es. "37s"), in millisecondi
     function geminiRetryDelayMs(j) {
@@ -1735,94 +1799,148 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     async function waitWithCountdown(ms, label) {
       const end = Date.now() + ms;
       while (Date.now() < end) {
-        setOv(`⏳ ${label} — nuovo tentativo tra ${Math.ceil((end - Date.now()) / 1000)}s`, 20);
+        throwIfAborted();
+        const s = Math.ceil((end - Date.now()) / 1000);
+        setOv(`⏳ ${label} — nuovo tentativo tra ${s}s`);
+        Prog.note(`⏳ ${label} — nuovo tentativo tra ${s}s`);
         await new Promise(r => setTimeout(r, Math.min(1000, end - Date.now())));
       }
+      throwIfAborted();
+      Prog.note('');
     }
 
-    async function callGemini(userMsg, sysOverride) {
-      const sys = sysOverride || getSys();
-      let lastErr = null;
-      const models = await discoverGeminiModels();
+    // Avviso quando si passa automaticamente a un altro modello
+    function gemSwitchNotice(from, to, reason) {
+      const msg = `${from}: ${reason}. Continuo con ${to}.`;
+      toast('⚠ ' + msg, 'err');
+      Prog.note('⚠ ' + msg);
+      apiLog({ model: from, outcome: 'cambio', msg: reason + ' → ' + to });
+    }
+
+    // Esegue una richiesta Gemini provando i modelli del livello, con attese e cambi automatici.
+    //   send(model, opts) → Promise<Response>      extract(json, model) → risultato (lancia se vuoto)
+    async function geminiRun(tier, send, extract) {
+      const models = await geminiCandidates(tier);
+      let lastErr = null, failed = null, reason = '';
 
       for (let pass = 1; pass <= GEM_MAX_PASSES; pass++) {
         let onlyOverload = true;
         for (const model of models) {
-          const body = {
-            systemInstruction: { parts: [{ text: sys }] },
-            contents: [{ role: 'user', parts: [{ text: userMsg || '' }] }],
-            generationConfig: { temperature: 0.4, maxOutputTokens: 65536, responseMimeType: 'application/json' }
-          };
-          // Il modello leggero non ragiona di default: un piccolo budget lo aiuta a seguire le istruzioni
-          if (/2\.5-flash-lite/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 2048 };
+          if (failed && failed !== model) gemSwitchNotice(failed, model, reason);
+          failed = null;
+          const opts = { thinking: true };
           for (let attempt = 0; attempt <= GEM_MAX_RETRIES_PER_MODEL; attempt++) {
-            try {
-              const res = await fetch(`/api/gemini/${model}:generateContent`,
-                { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey }, body: JSON.stringify(body) });
+            throwIfAborted();
+            Prog.model(model);
+            const t0 = Date.now();
+            let res;
+            try { res = await send(model, opts); }
+            catch (e) {
+              if (isAbort(e)) throw e;
+              lastErr = new Error(model + ': connessione non riuscita (' + e.message + ')');
+              apiLog({ model, outcome: 'errore', msg: lastErr.message, ms: Date.now() - t0 });
+              failed = model; reason = 'connessione non riuscita'; onlyOverload = false;
+              break;
+            }
+            const ms = Date.now() - t0;
+            const j = await res.json().catch(() => ({}));
 
-              if (res.status === 404 || res.status === 400) {
-                const j = await res.json().catch(() => ({}));
-                const msg = j.error?.message || '';
-                if (/API key not valid|API_KEY_INVALID/i.test(msg)) throw new Error('Chiave Gemini non valida.');
-                // Se il modello non accetta il budget di ragionamento, riprova senza
-                if (body.generationConfig.thinkingConfig && /think/i.test(msg)) {
-                  delete body.generationConfig.thinkingConfig; attempt--; continue;
-                }
-                if (msg.includes('not found') || msg.includes('not supported') || res.status === 404) { lastErr = new Error(model + ': ' + msg); break; }
-                throw new Error('Errore Gemini: ' + (msg || 'richiesta non valida'));
-              }
-              if (res.status === 401 || res.status === 403) throw new Error('Chiave Gemini non valida.');
-
-              if (GEM_RETRYABLE.has(res.status)) {
-                const j = await res.json().catch(() => ({}));
-                const msg = j.error?.message || ('Errore ' + res.status);
-                lastErr = new Error(model + ': ' + msg);
-                const overloaded = res.status !== 429;
-                if (!overloaded) onlyOverload = false;
-                if (res.status === 429 && geminiDailyQuota(j)) {
-                  console.warn('[Gemini] quota giornaliera esaurita su', model);
-                  break;   // modello successivo, senza attese
-                }
-                if (attempt < GEM_MAX_RETRIES_PER_MODEL) {
-                  // 429: aspetta quanto chiede Gemini (limite al minuto); errori del server: 5s, poi 10s
-                  const suggested = res.status === 429 ? geminiRetryDelayMs(j) : 0;
-                  const wait = Math.min(suggested || (res.status === 429 ? 20000 : 5000 * Math.pow(2, attempt)), GEM_MAX_WAIT_MS) + Math.random() * 800;
-                  const label = overloaded ? `${model} sovraccarico` : `Limite di richieste al minuto su ${model}`;
-                  await waitWithCountdown(wait, label);
-                  continue;
-                }
+            if (res.ok) {
+              try {
+                const out = extract(j, model);
+                const u = j.usageMetadata || {};
+                apiLog({ model, ver: j.modelVersion || '', outcome: 'ok', http: res.status, ms,
+                  tin: u.promptTokenCount || 0, tout: u.candidatesTokenCount || 0, tthink: u.thoughtsTokenCount || 0 });
+                _lastModel = model + (j.modelVersion && j.modelVersion !== model ? ' (' + j.modelVersion + ')' : '');
+                return out;
+              } catch (e) {
+                lastErr = new Error(model + ': ' + e.message);
+                apiLog({ model, ver: j.modelVersion || '', outcome: 'errore', http: res.status, msg: e.message, ms });
+                failed = model; reason = 'risposta vuota'; onlyOverload = false;
                 break;
               }
-
-              if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error?.message || 'Errore Gemini (' + res.status + ')'); }
-
-              const data = await res.json();
-              const raw = data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '';
-              if (!raw) throw new Error('Gemini ha restituito risposta vuota.');
-              if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
-                _lastTruncated = true;
-                console.warn('[Gemini] risposta troncata per MAX_TOKENS');
-              }
-              _lastModel = model;
-              console.log('[Gemini] ✓', model, 'pass', pass, 'tentativo', attempt);
-              return raw;
-
-            } catch (err) {
-              if (err.message.includes('not found') || err.message.includes('not supported')) { lastErr = err; break; }
-              if (err.message === 'Chiave Gemini non valida.') throw err;
-              lastErr = err; break;
             }
+
+            const msg = (j.error && j.error.message) || ('HTTP ' + res.status);
+            apiLog({ model, outcome: 'errore', http: res.status, msg: msg.slice(0, 300), ms });
+            lastErr = new Error(model + ': ' + msg);
+            if (res.status === 401 || res.status === 403 || /API key not valid|API_KEY_INVALID/i.test(msg)) {
+              throw new Error('Chiave Gemini non valida.');
+            }
+            // Il modello non accetta il budget di ragionamento: stesso modello, senza
+            if (res.status === 400 && opts.thinking && /think/i.test(msg)) { opts.thinking = false; attempt--; continue; }
+            if (res.status === 404 || /not found|not supported/i.test(msg)) {
+              failed = model; reason = 'modello non disponibile per questa chiave'; onlyOverload = false; break;
+            }
+            if (res.status === 429) {
+              onlyOverload = false;
+              const zero = /limit:\s*0\b/.test(msg);
+              if (zero || geminiDailyQuota(j)) {
+                gemBlock(model);
+                failed = model; reason = zero ? 'non incluso nel piano di questa chiave' : 'limite giornaliero raggiunto';
+                break;
+              }
+              if (attempt < GEM_MAX_RETRIES_PER_MODEL) {
+                await waitWithCountdown(Math.min(geminiRetryDelayMs(j) || 20000, GEM_MAX_WAIT_MS) + Math.random() * 800,
+                  `Limite di richieste al minuto su ${model}`);
+                continue;
+              }
+              failed = model; reason = 'limite di richieste al minuto'; break;
+            }
+            // Timeout del nostro server: la risposta era troppo lenta, si prova un altro modello
+            if (res.status === 504 && /Timeout: il server Gemini/i.test(msg)) {
+              onlyOverload = false; failed = model; reason = 'risposta troppo lenta'; break;
+            }
+            if (GEM_RETRYABLE.has(res.status)) {
+              if (attempt < GEM_MAX_RETRIES_PER_MODEL) {
+                await waitWithCountdown(5000 * Math.pow(2, attempt) + Math.random() * 800, `${model} sovraccarico`);
+                continue;
+              }
+              failed = model; reason = 'sovraccarico'; break;
+            }
+            // Altri errori (es. 400): si prova comunque il modello successivo
+            onlyOverload = false; failed = model; reason = 'richiesta rifiutata (' + res.status + ')'; break;
           }
         }
-        // Un secondo giro solo se i modelli erano sovraccarichi (non per i limiti di quota)
+        // Un secondo giro solo se i modelli erano tutti sovraccarichi (non per i limiti di quota)
         if (pass < GEM_MAX_PASSES && onlyOverload) {
           await waitWithCountdown(10000, 'Tutti i modelli Gemini sono sovraccarichi');
         } else break;
       }
       _geminiModelsCache = null;
-      if (lastErr && /quota|429|rate/i.test(lastErr.message)) throw new Error('Limite di richieste Gemini raggiunto su tutti i modelli. Riprova tra qualche minuto. ' + lastErr.message);
-      if (lastErr && !isOverloadMsg(lastErr.message)) throw new Error('Errore Gemini: ' + lastErr.message);
-      throw new Error('Gemini è sovraccarico al momento. Riprova tra qualche minuto oppure passa su Anthropic Claude dal menu in alto. ' + (lastErr?.message || ''));
+      const m = lastErr ? lastErr.message : '';
+      if (/quota|limit|429|RESOURCE_EXHAUSTED/i.test(m)) {
+        throw new Error('Limite di richieste Gemini raggiunto su tutti i modelli. I limiti giornalieri si azzerano alle '
+          + gemResetTime() + '. Dettagli nel registro delle Impostazioni.');
+      }
+      if (m && !isOverloadMsg(m)) throw new Error('Errore Gemini: ' + m);
+      throw new Error('Gemini è sovraccarico al momento. Riprova tra qualche minuto oppure passa su Anthropic Claude dal menu in alto. ' + m);
+    }
+
+    async function callGemini(userMsg, sysOverride, opts) {
+      const sys = sysOverride || getSys();
+      const tier = (opts && opts.tier) || 'heavy';
+      return geminiRun(tier, (model, o) => {
+        const body = {
+          systemInstruction: { parts: [{ text: sys }] },
+          contents: [{ role: 'user', parts: [{ text: userMsg || '' }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 65536, responseMimeType: 'application/json' }
+        };
+        // Il modello leggero 2.5 non ragiona di default: un piccolo budget lo aiuta a seguire le istruzioni
+        if (o.thinking && /2\.5-flash-lite/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 2048 };
+        return fetch(`/api/gemini/${model}:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+          body: JSON.stringify(body), signal: genSignal()
+        });
+      }, data => {
+        const raw = (data.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('');
+        if (!raw) throw new Error('risposta vuota');
+        if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+          _lastTruncated = true;
+          console.warn('[Gemini] risposta troncata per MAX_TOKENS');
+        }
+        return raw;
+      });
     }
 
     const ANTHROPIC_MODEL = 'claude-opus-4-5';
@@ -1832,24 +1950,31 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     async function callAnthropic(userMsg, sysOverride, retryCount) {
       retryCount = retryCount || 0;
       const sys = sysOverride || getSys();
+      throwIfAborted();
+      Prog.model(ANTHROPIC_MODEL);
+      const t0 = Date.now();
       const res = await fetch('/api/anthropic/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 16000, system: sys, messages: [{ role: 'user', content: userMsg }] })
+        body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: 16000, system: sys, messages: [{ role: 'user', content: userMsg }] }),
+        signal: genSignal()
       });
       if (!res.ok) {
         let e = 'Errore Anthropic (' + res.status + ')';
         try { const j = await res.json(); e = j.error?.message || e; } catch (x) { }
+        apiLog({ model: ANTHROPIC_MODEL, outcome: 'errore', http: res.status, msg: e.slice(0, 300), ms: Date.now() - t0 });
         if (ANT_RETRYABLE.has(res.status) && retryCount < ANT_MAX_RETRIES) {
           const wait = Math.min(3000 * Math.pow(2, retryCount), 15000) + Math.random() * 800;
           const label = res.status === 529 ? 'Claude sovraccarico' : 'Limite richieste raggiunto';
-          setOv(`⏳ ${label} — nuovo tentativo tra ${Math.round(wait / 1000)}s (${retryCount + 1}/${ANT_MAX_RETRIES})`, 20);
-          await new Promise(r => setTimeout(r, wait));
+          await waitWithCountdown(wait, label);
           return callAnthropic(userMsg, sysOverride, retryCount + 1);
         }
         throw new Error(e + (res.status === 529 ? ' — Claude è sovraccarico, riprova tra qualche minuto.' : ''));
       }
       const data = await res.json();
+      const au = data.usage || {};
+      apiLog({ model: ANTHROPIC_MODEL, ver: data.model || '', outcome: 'ok', http: res.status, ms: Date.now() - t0,
+        tin: au.input_tokens || 0, tout: au.output_tokens || 0 });
       if (data.stop_reason === 'max_tokens') {
         _lastTruncated = true;
         console.warn('[Anthropic] risposta troncata per max_tokens');
@@ -1857,8 +1982,9 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return data.content.map(i => i.text || '').join('');
     }
 
-    async function callAI(msg, sysOverride) {
-      if (provider === 'gemini') return callGemini(msg, sysOverride);
+    // opts.tier: 'heavy' (appunti, unione, correzione) o 'light' (riassunti dei segmenti); vale per Gemini
+    async function callAI(msg, sysOverride, opts) {
+      if (provider === 'gemini') return callGemini(msg, sysOverride, opts);
       if (provider === 'anthropic') return callAnthropic(msg, sysOverride);
       return callDeepSeek(msg, sysOverride);
     }
@@ -1883,29 +2009,36 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         response_format: { type: 'json_object' }
       };
 
+      throwIfAborted();
+      Prog.model('deepseek-chat');
+      const t0 = Date.now();
       const res = await fetch('/api/deepseek/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Api-Key': apiKey
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: genSignal()
       });
 
       if (!res.ok) {
         let e = 'Errore DeepSeek (' + res.status + ')';
         try { const j = await res.json(); e = j.error?.message || e; } catch (x) { }
+        apiLog({ model: 'deepseek-chat', outcome: 'errore', http: res.status, msg: e.slice(0, 300), ms: Date.now() - t0 });
         if (DS_RETRYABLE.has(res.status) && retryCount < DS_MAX_RETRIES) {
           const wait = Math.min(3000 * Math.pow(2, retryCount), 15000) + Math.random() * 800;
           const label = res.status === 529 ? 'DeepSeek sovraccarico' : 'Limite richieste raggiunto';
-          setOv(`⏳ ${label} — nuovo tentativo tra ${Math.round(wait / 1000)}s (${retryCount + 1}/${DS_MAX_RETRIES})`, 20);
-          await new Promise(r => setTimeout(r, wait));
+          await waitWithCountdown(wait, label);
           return callDeepSeek(userMsg, sysOverride, retryCount + 1);
         }
         throw new Error(e + (res.status === 529 ? ' — DeepSeek è sovraccarico, riprova tra qualche minuto.' : ''));
       }
 
       const data = await res.json();
+      const du = data.usage || {};
+      apiLog({ model: 'deepseek-chat', outcome: 'ok', http: res.status, ms: Date.now() - t0,
+        tin: du.prompt_tokens || 0, tout: du.completion_tokens || 0 });
       const choice = data.choices?.[0];
       if (choice?.finish_reason === 'length') {
         _lastTruncated = true;
@@ -2023,19 +2156,46 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     //  TRASCRIZIONE AUDIO LUNGO (Gemini File API)
     // ══════════════════════════════════════════════════════════════
     
-    const INLINE_AUDIO_MAX = 20 * 1024 * 1024; // stesso limite di /api/transcribe
+    // La richiesta a Gemini può essere al massimo 20 MB e il Base64 aumenta il file di un terzo:
+    // fino a 14 MB l'audio passa dal server (/api/transcribe), oltre si carica con la File API.
+    const INLINE_AUDIO_MAX = 14 * 1024 * 1024;
+    const TRANSCRIBE_PROMPT = 'Trascrivi fedelmente questo audio. Restituisci SOLO il testo trascritto, niente commenti.';
 
-    async function transcribeAudioViaServer(file, apiKey) {
-      const fd = new FormData();
-      fd.append('audio', file, file.name);
-      fd.append('key', apiKey);
-      const res = await fetch('/api/transcribe', { method: 'POST', body: fd });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error('Trascrizione fallita: ' + (data.error?.message || res.status));
-      return (data.text || '').trim();
+    function transcriptFromResponse(d) {
+      const t = d && d.text !== undefined ? d.text
+        : (d.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('');
+      if (!String(t || '').trim()) throw new Error('trascrizione vuota');
+      return String(t).trim();
     }
 
-    async function uploadAudioToGemini(file, apiKey) {
+    // Trascrizione di un file audio con il modello leggero (con cambio automatico se serve)
+    async function transcribeAudioFile(file) {
+      if (file.size <= INLINE_AUDIO_MAX) {
+        return geminiRun('light', model => {
+          const fd = new FormData();
+          fd.append('audio', file, file.name);
+          fd.append('key', apiKey);
+          fd.append('model', model);
+          return fetch('/api/transcribe', { method: 'POST', body: fd, signal: genSignal() });
+        }, transcriptFromResponse);
+      }
+      Prog.note('Caricamento del file su Gemini (può richiedere qualche minuto)...');
+      const fileUri = await uploadAudioToGemini(file);
+      Prog.note('');
+      const mimeType = file.type || 'audio/mp4';
+      return geminiRun('light', model => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: TRANSCRIBE_PROMPT }, { fileData: { mimeType, fileUri } }] }],
+          generationConfig: { temperature: 0.2 }
+        }),
+        signal: genSignal()
+      }), transcriptFromResponse);
+    }
+
+    async function uploadAudioToGemini(file) {
+      throwIfAborted();
       const initRes = await fetch('https://generativelanguage.googleapis.com/upload/v1beta/files', {
         method: 'POST',
         headers: {
@@ -2046,18 +2206,21 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           'X-Goog-Upload-Header-Content-Type': file.type || 'audio/mp4',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ file: { display_name: file.name } })
+        body: JSON.stringify({ file: { display_name: file.name } }),
+        signal: genSignal()
       });
-      
+
       if (!initRes.ok) {
         const err = await initRes.text();
+        apiLog({ model: 'File API', outcome: 'errore', http: initRes.status, msg: err.slice(0, 300) });
         if (/API key not valid|API_KEY_INVALID|UNAUTHENTICATED/i.test(err)) throw new Error('Chiave Gemini non valida: incolla la chiave nel campo in alto e premi Salva.');
         throw new Error('Inizializzazione upload fallita: ' + err.slice(0, 200));
       }
-      
+
       const uploadUrl = initRes.headers.get('X-Goog-Upload-URL');
       if (!uploadUrl) throw new Error('URL di upload non ricevuto da Gemini');
-      
+
+      const t0 = Date.now();
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
         headers: {
@@ -2066,44 +2229,20 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           'Content-Length': String(file.size),
           'Content-Type': file.type || 'audio/mp4'
         },
-        body: file
+        body: file,
+        signal: genSignal()
       });
-      
+
       if (!uploadRes.ok) {
         const err = await uploadRes.text();
+        apiLog({ model: 'File API', outcome: 'errore', http: uploadRes.status, msg: err.slice(0, 300), ms: Date.now() - t0 });
         throw new Error('Upload file fallito: ' + err.slice(0, 200));
       }
-      
-      const uploadData = await uploadRes.json();
-      return uploadData.file.uri;
-    }
 
-    async function transcribeAudioWithGemini(fileUri, mimeType, apiKey) {
-      const body = {
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: 'Trascrivi fedelmente questo audio. Restituisci SOLO il testo trascritto, niente commenti.' },
-            { fileData: { mimeType: mimeType, fileUri: fileUri } }
-          ]
-        }],
-        generationConfig: { temperature: 0.2 }
-      };
-      
-      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify(body)
-      });
-      
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error('Trascrizione fallita: ' + err.slice(0, 200));
-      }
-      
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      return text.trim();
+      const uploadData = await uploadRes.json();
+      apiLog({ model: 'File API', outcome: 'ok', http: uploadRes.status, ms: Date.now() - t0,
+        msg: 'caricato ' + (file.size / 1048576).toFixed(1) + ' MB' });
+      return uploadData.file.uri;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -2306,30 +2445,36 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     async function generate() {
+      if (_genAbort) return;   // una generazione è già in corso
       // Conta la chiave scritta nel campo: una salvata in precedenza potrebbe essere vecchia
       const key = cleanKey(document.getElementById('apiInput').value) || apiKey;
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
       apiKey = key;
 
       const audioFiles = uploadedFiles.filter(f => f.isAudio);
-      if (audioFiles.length > 0) {
-        if (provider !== 'gemini') {
-          hideOv();
-          toast('La trascrizione dei file audio è supportata solo con Google Gemini. Cambia provider dal menu in alto.', 'err');
-          return;
-        }
-        for (const af of audioFiles) {
-          try {
-            setOv('Caricamento audio su Gemini... (potrebbe richiedere qualche minuto per file grandi)', 5);
+      if (audioFiles.length > 0 && provider !== 'gemini') {
+        toast('La trascrizione dei file audio è supportata solo con Google Gemini. Cambia provider dal menu in alto.', 'err');
+        return;
+      }
+
+      _genAbort = new AbortController();
+      _lastTruncated = false;
+      _lastModel = '';
+      Prog.start(audioFiles.length ? [['audio', 'Trascrizione audio']] : []);
+      setOv('Preparazione...');
+      try {
+        // 1) Trascrizione dei file audio (modello leggero)
+        if (audioFiles.length) {
+          Prog.begin('audio');
+          for (let i = 0; i < audioFiles.length; i++) {
+            const af = audioFiles[i];
+            Prog.label('audio', 'Trascrizione audio' + (audioFiles.length > 1 ? ` (${i + 1}/${audioFiles.length})` : '') + ': ' + af.name);
+            setOv('Trascrizione audio in corso... (non chiudere la pagina)');
             let text;
-            if (af.file.size <= INLINE_AUDIO_MAX) {
-              setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
-              text = await transcribeAudioViaServer(af.file, apiKey);
-            } else {
-              const mimeType = af.file.type || 'audio/mp4';
-              const fileUri = await uploadAudioToGemini(af.file, apiKey);
-              setOv('Trascrizione audio in corso... (non chiudere la pagina)', 15);
-              text = await transcribeAudioWithGemini(fileUri, mimeType, apiKey);
+            try { text = await transcribeAudioFile(af.file); }
+            catch (err) {
+              if (isAbort(err)) throw err;
+              throw new Error('trascrizione di ' + af.name + ' non riuscita: ' + err.message);
             }
             if (text) {
               if (tmode === 'text') {
@@ -2342,39 +2487,33 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
                 renderTbox();
               }
             }
-          } catch (err) {
-            hideOv();
-            toast('Errore trascrizione ' + af.name + ': ' + err.message, 'err');
-            return;
+            // Il file già trascritto non va rifatto se la generazione viene annullata o fallisce dopo
+            uploadedFiles = uploadedFiles.filter(f => f !== af);
+            renderFileList();
           }
+          Prog.done('audio');
         }
-        uploadedFiles = uploadedFiles.filter(f => !f.isAudio);
-        renderFileList();
-      }
 
-      // Si usa esattamente ciò che è visibile nelle caselle
-      syncTranscriptFromUI();
-      // Due caselle: trascrizione live (finalTr) e testo incollato/scritto (pastedTr).
-      // La casella di testo viene SEMPRE usata: se è piena sono appunti che non devono andare persi,
-      // anche quando sei in modalità Live.
-      const liveTr = (finalTr + ' ' + interimTr).trim();
-      const textTr = pastedTr.trim();
-      // La trascrizione è la somma delle due caselle, se entrambe hanno contenuto (indipendentemente dalla modalità)
-      const rawTr = [liveTr, textTr].filter(Boolean).join('\n\n');
-      const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;
-      const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
-      // Una riga della casella di testo = un punto che non deve andare perso
-      const notesItems = textTr ? userNoteItems(textTr) : [];
-      // Soglia in caratteri: sopra questa lunghezza si usa il lavoro a blocchi (niente tagli silenziosi).
-      // 120.000 caratteri ≈ 2-3 ore di lezione ≈ 35.000 token: una sola chiamata mantiene tutti i dettagli.
-      const isLong = hasTr && normMath(compressTranscript(rawTr)).length > LONG_TRANSCRIPT_CHARS;
-      if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
+        // 2) Testo da elaborare: esattamente ciò che è visibile nelle due caselle
+        syncTranscriptFromUI();
+        const liveTr = (finalTr + ' ' + interimTr).trim();
+        const textTr = pastedTr.trim();
+        const rawTr = [liveTr, textTr].filter(Boolean).join('\n\n');
+        const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;
+        const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
+        // Una riga della casella di testo = un punto che non deve andare perso
+        const notesItems = textTr ? userNoteItems(textTr) : [];
+        // Oltre 120.000 caratteri (2-3 ore di lezione) si lavora a blocchi, senza tagli silenziosi
+        const isLong = hasTr && normMath(compressTranscript(rawTr)).length > LONG_TRANSCRIPT_CHARS;
+        if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
 
-      await skillsReady;
-      _lastTruncated = false;
-      _lastModel = '';
-      setOv('Preparando...', 5);
-      try {
+        await skillsReady;
+        Prog.append(isLong
+          ? [['segmenti', 'Riassunto dei segmenti'], ['unione', 'Unione degli appunti']]
+          : [['appunti', 'Scrittura degli appunti']]);
+        Prog.append([['controllo', 'Controllo qualità'], ['correzione', 'Correzione'], ['salvataggio', 'Salvataggio']]);
+
+        // 3) Appunti (modello migliore)
         let parsed;
         if (isLong) {
           toast(`Elaborazione a blocchi (${wordCount.toLocaleString()} parole)...`, 'ok');
@@ -2382,50 +2521,67 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         } else {
           const docChars = uploadedFiles.reduce((a, f) => a + (f.txt ? f.txt.length : 0), 0);
           if (docChars > 36000) toast('Materiale molto lungo: una parte dei documenti non verrà letta.', 'err');
-          setOv(
-            provider === 'gemini' ? 'Chiamata Gemini...'
-              : provider === 'anthropic' ? 'Chiamata Anthropic...'
-                : 'Chiamata DeepSeek...', 20);
-          parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems)));
+          Prog.begin('appunti');
+          setOv('Il modello sta scrivendo gli appunti: con una lezione lunga può servire qualche minuto.');
+          parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems), null, { tier: 'heavy' }));
+          Prog.done('appunti');
         }
         parsed = ensureUserNotes(parsed, notesItems);
         const genModel = _lastModel;   // prima della correzione, che può usare un altro modello
+
+        // 4) Controllo qualità e, se serve, una sola correzione mirata
+        Prog.begin('controllo');
+        setOv('Controllo di evidenze, titoli e schemi...');
         const issues = await allNotesIssues(parsed.notes_md, parsed.title);
+        Prog.done('controllo', issues.length ? issues.length + ' punti da sistemare' : 'tutto a posto');
         if (issues.length && String(parsed.notes_md || '').trim()) {
           console.warn('[qualità] da correggere:', issues.join('; '));
-          setOv('Sistemo evidenze, titoli e schemi...', 88);
+          Prog.begin('correzione');
+          setOv('Sistemo evidenze, titoli e schemi...');
           try {
-            const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues), getSysFix()));
+            const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues), getSysFix(), { tier: 'heavy' }));
             const newMd = String(fixed.notes_md || '');
             if (newMd && await acceptFix(parsed.notes_md, newMd, issues.length, parsed.title)) {
               parsed.notes_md = newMd;                       // cambia solo notes_md
               parsed = ensureUserNotes(parsed, notesItems);
               parsed.quality_fix = 'accettata';
+              Prog.done('correzione', 'applicata');
             } else {
               parsed.quality_fix = 'scartata';
               console.warn('[qualità] correzione scartata: peggiora o toglie contenuto');
+              Prog.done('correzione', 'scartata: avrebbe tolto contenuto');
             }
-          } catch (e) { parsed.quality_fix = 'fallita'; console.warn('[qualità] correzione fallita:', e.message); }
+          } catch (e) {
+            if (isAbort(e)) throw e;
+            parsed.quality_fix = 'fallita';
+            console.warn('[qualità] correzione fallita:', e.message);
+            Prog.fail('correzione', 'non riuscita: tengo la prima versione');
+          }
           const left = notesQualityIssues(parsed.notes_md, parsed.title);
           if (left.length) console.warn('[qualità] ancora da migliorare:', left.join('; '));
           if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
             toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');
           }
+        } else {
+          Prog.skip('correzione', 'non necessaria');
         }
+
         // Modello che ha prodotto gli appunti (utile per capire un risultato scarso)
         parsed.model = provider === 'gemini' ? (genModel || 'gemini') : provider === 'anthropic' ? ANTHROPIC_MODEL : 'deepseek-chat';
         console.log('[LectureAI] Risposta AI parsata:', parsed);
-        console.log('[LectureAI] Campi presenti:', Object.keys(parsed || {}).join(', '));
         if (!String(parsed.notes_md || parsed.notes_html || '').trim()) {
           console.warn('[LectureAI] ⚠️ notes_md vuoto o mancante!');
         }
 
+        // 5) Salvataggio
+        throwIfAborted();
+        Prog.begin('salvataggio');
+        setOv('Salvataggio e impaginazione...');
         lastData = parsed;
         safeRemove(TRANS_BACKUP_KEY);
-        setOv('Renderizzando...', 94);
-
         await renderAll(parsed);
         const saved = saveHist(true);
+        Prog.done('salvataggio');
         hideOv();
         document.getElementById('xbar').style.display = 'flex';
         if (saved) toast('✓ Appunti generati e salvati!', 'ok');
@@ -2434,9 +2590,17 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           setTimeout(() => toast('⚠️ Una risposta AI è arrivata troncata per limite di lunghezza: alcuni contenuti potrebbero essere incompleti. Ho recuperato quello che potevo.', 'err'), 3500);
         }
       } catch (err) {
+        if (isAbort(err)) {
+          apiLog({ outcome: 'annullata', msg: 'generazione annullata dall\'utente' });
+          toast('Generazione annullata: trascrizione e appunti sono rimasti dove erano.', 'ok');
+        } else {
+          console.error('[LectureAI]', err);
+          toast('Errore: ' + err.message, 'err');
+        }
+      } finally {
+        _genAbort = null;
+        Prog.stop();
         hideOv();
-        console.error('[LectureAI]', err);
-        toast('Errore: ' + err.message, 'err');
       }
     }
 
@@ -2463,28 +2627,27 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const chunks = splitChunks(compressed);
       const tot = chunks.length;
       const segs = [];
+      Prog.begin('segmenti');
       for (let i = 0; i < chunks.length; i++) {
-        setOv(`Analisi segmento ${i + 1}/${tot}...`, Math.round(10 + (i / chunks.length) * 55));
+        Prog.label('segmenti', `Riassunto dei segmenti (${i + 1}/${tot})`);
+        setOv(`Riassunto del segmento ${i + 1} di ${tot}...`);
         const sys = SYS_CHUNK.replace(/\{N\}/g, String(i + 1)).replace(/\{TOT\}/g, String(tot));
-        let raw;
-        try { raw = await callAI(`Segmento ${i + 1} di ${tot}:\n\n${chunks[i]}`, sys); }
-        catch (e) {
-          if (/429|503|529|sovraccaric|overload/i.test(e.message)) {
-            setOv(`⏳ Sovraccarico sul segmento ${i + 1}/${tot} — nuovo tentativo tra 8s...`, Math.round(10 + (i / chunks.length) * 55));
-            await new Promise(r => setTimeout(r, 8000));
-            raw = await callAI(`Segmento ${i + 1} di ${tot}:\n\n${chunks[i]}`, sys);
-          } else throw e;
-        }
+        // Riassunti dei segmenti: lavoro semplice, modello leggero (attese e cambi gestiti da callAI)
+        const raw = await callAI(`Segmento ${i + 1} di ${tot}:\n\n${chunks[i]}`, sys, { tier: 'light' });
         try { segs.push(parseJSON(raw)); } catch { segs.push({ segment: i + 1, summary_text: raw.slice(0, 800), key_points: [], topics_covered: [], formulas_or_code: [] }); }
-        if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 1200));
+        if (i < chunks.length - 1) await sleepAbortable(1200);
       }
-      setOv('Fusione appunti...', 72);
+      Prog.done('segmenti', tot + ' segmenti');
+      Prog.begin('unione');
+      setOv('Unione degli appunti dei segmenti...');
       const pdfSec = hasPdf ? '\n\n## MATERIALE:\n' + uploadedFiles.map(f => f.name + ':\n' + f.txt.slice(0, 20000)).join('\n\n---\n\n') : '';
       const mergeMsg = `Riassunti di ${tot} segmenti (lezione ~${Math.round(rawTr.split(/\s+/).length)} parole):\n\n`
         + segs.map((s, i) => `### Segmento ${i + 1}:\n${(s.topics_covered || []).join(', ')}\n${(s.key_points || []).join(' | ')}\n${s.summary_text || ''}`).join('\n\n')
         + pdfSec
         + (notesItems && notesItems.length ? '\n\n' + notesBlock(notesItems) : '');
-      return parseJSON(await callAI(mergeMsg, getSysMerge()));
+      const merged = parseJSON(await callAI(mergeMsg, getSysMerge(), { tier: 'heavy' }));
+      Prog.done('unione');
+      return merged;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -2881,12 +3044,170 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  AVANZAMENTO DELLA GENERAZIONE: elenco dei passi nell'overlay
+    // ══════════════════════════════════════════════════════════════
+    const Prog = {
+      steps: [], timer: null,
+      _mk(id, label) { return { id, label, state: 'todo', t0: 0, ms: 0, model: '', note: '' }; },
+      start(list) {
+        this.steps = (list || []).map(([id, label]) => this._mk(id, label));
+        clearInterval(this.timer);
+        this.timer = setInterval(() => this.render(), 1000);
+        const c = document.getElementById('ovCancel');
+        if (c) { c.style.display = ''; c.disabled = false; c.textContent = 'Annulla'; }
+        this.render();
+      },
+      append(list) { (list || []).forEach(([id, label]) => this.steps.push(this._mk(id, label))); this.render(); },
+      get(id) { return this.steps.find(s => s.id === id); },
+      active() { return this.steps.find(s => s.state === 'active'); },
+      begin(id) {
+        const cur = this.active();
+        if (cur && cur.id !== id) this.done(cur.id);
+        const s = this.get(id); if (!s) return;
+        s.state = 'active'; s.t0 = Date.now(); s.note = ''; this.render();
+      },
+      _end(id, state, note) {
+        const s = this.get(id); if (!s) return;
+        if (s.state === 'active') s.ms = Date.now() - s.t0;
+        s.state = state; if (note !== undefined) s.note = note; this.render();
+      },
+      done(id, note) { this._end(id, 'done', note); },
+      skip(id, note) { this._end(id, 'skip', note); },
+      fail(id, note) { this._end(id, 'fail', note); },
+      label(id, text) { const s = this.get(id); if (s) { s.label = text; this.render(); } },
+      model(m) { const s = this.active(); if (s && s.model !== m) { s.model = m; this.render(); } },
+      note(t) { const s = this.active(); if (s) { s.note = t || ''; this.render(); } },
+      currentLabel() { const s = this.active(); return s ? s.label : ''; },
+      stop() {
+        clearInterval(this.timer); this.timer = null;
+        const a = this.active(); if (a) this.fail(a.id);
+        const c = document.getElementById('ovCancel'); if (c) c.style.display = 'none';
+      },
+      render() {
+        const el = document.getElementById('ovSteps');
+        if (!el) return;
+        if (!this.steps.length) { el.innerHTML = ''; return; }
+        const icon = { todo: '○', active: '◐', done: '✓', skip: '–', fail: '✕' };
+        const sec = ms => { const s = Math.round(ms / 1000); return s >= 60 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : s + 's'; };
+        el.innerHTML = this.steps.map(s => {
+          const t = s.state === 'active' ? sec(Date.now() - s.t0) : (s.ms ? sec(s.ms) : '');
+          const det = [s.model, s.note].filter(Boolean).join(' · ');
+          return '<li class="ovst ovst-' + s.state + '"><span class="ovst-i">' + icon[s.state] + '</span>'
+            + '<span class="ovst-l">' + escHtml(s.label) + '</span><span class="ovst-t">' + t + '</span>'
+            + (det ? '<div class="ovst-d">' + escHtml(det) + '</div>' : '') + '</li>';
+        }).join('');
+        // Barra: passi conclusi più metà di quello in corso
+        const n = this.steps.length;
+        const fin = this.steps.filter(s => s.state === 'done' || s.state === 'skip').length + (this.active() ? 0.5 : 0);
+        const bar = document.getElementById('bar');
+        if (bar) bar.style.width = Math.round(100 * fin / n) + '%';
+      }
+    };
+
+    async function sleepAbortable(ms) {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        throwIfAborted();
+        await new Promise(r => setTimeout(r, Math.min(250, end - Date.now())));
+      }
+      throwIfAborted();
+    }
+
+    function cancelGeneration() {
+      if (!_genAbort) return;
+      _genAbort.abort();
+      const c = document.getElementById('ovCancel');
+      if (c) { c.disabled = true; c.textContent = 'Annullamento...'; }
+      setOv('Annullamento in corso...');
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  REGISTRO DELLE CHIAMATE (Impostazioni → per esperti)
+    // ══════════════════════════════════════════════════════════════
+    function renderApiLog() {
+      const box = document.getElementById('apiLogBox');
+      const sum = document.getElementById('apiLogSummary');
+      if (!box || !sum) return;
+      const log = readApiLog();
+      const today = new Date().toDateString();
+      const per = {};
+      log.filter(e => new Date(e.t).toDateString() === today && e.model).forEach(e => {
+        const p = per[e.model] || (per[e.model] = { ok: 0, err: 0, tin: 0, tout: 0, tthink: 0 });
+        if (e.outcome === 'ok') p.ok++; else if (e.outcome === 'errore') p.err++;
+        p.tin += e.tin || 0; p.tout += e.tout || 0; p.tthink += e.tthink || 0;
+      });
+      const fmt = n => (n || 0).toLocaleString('it-IT');
+      const blocked = gemBlocked();
+      const rows = Object.keys(per).map(m => '<tr><td>' + escHtml(m) + '</td><td>' + per[m].ok + '</td><td>' + per[m].err + '</td><td>'
+        + fmt(per[m].tin) + '</td><td>' + fmt(per[m].tout) + '</td><td>' + fmt(per[m].tthink) + '</td></tr>').join('');
+      const bl = Object.keys(blocked).map(m => escHtml(m) + ' (fino alle ' + new Date(blocked[m]).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) + ')');
+      sum.innerHTML = '<div class="apiLogTitle">Oggi</div>'
+        + (rows ? '<table class="apiLogTable"><tr><th>Modello</th><th>OK</th><th>Errori</th><th>Token in</th><th>Token out</th><th>Ragion.</th></tr>' + rows + '</table>'
+          : '<div class="setHint">Nessuna chiamata oggi.</div>')
+        + '<div class="setHint">Livelli: lavori impegnativi → ' + GEM_TIERS.heavy[0] + ', lavori leggeri → ' + GEM_TIERS.light[0]
+        + '. I limiti giornalieri di Google si azzerano alle ' + gemResetTime() + '.</div>'
+        + (bl.length ? '<div class="setHint">Modelli saltati per oggi: ' + bl.join(', ') + '</div>' : '');
+      const icon = { ok: '✓', errore: '✕', cambio: '↪', annullata: '⏹', verifica: '🔎' };
+      box.innerHTML = log.length ? '<table class="apiLogTable"><tr><th>Ora</th><th>Passo</th><th>Modello</th><th></th><th>HTTP</th><th>Durata</th><th>Token</th><th>Dettagli</th></tr>'
+        + log.slice(-80).reverse().map(e => '<tr class="apiLog-' + escHtml(e.outcome || '') + '"><td>'
+          + new Date(e.t).toLocaleTimeString('it-IT') + '</td><td>' + escHtml(e.step || '') + '</td><td>'
+          + escHtml(e.model || '') + (e.ver && e.ver !== e.model ? '<br><small>' + escHtml(e.ver) + '</small>' : '') + '</td><td>'
+          + (icon[e.outcome] || '') + '</td><td>' + (e.http || '') + '</td><td>' + (e.ms ? (e.ms / 1000).toFixed(1) + 's' : '') + '</td><td>'
+          + (e.tin || e.tout ? fmt(e.tin) + ' / ' + fmt(e.tout) + (e.tthink ? ' / ' + fmt(e.tthink) : '') : '') + '</td><td>'
+          + escHtml(e.msg || '') + '</td></tr>').join('') + '</table>'
+        : '<div class="setHint">Il registro è vuoto.</div>';
+    }
+
+    function clearApiLog() {
+      safeRemove(API_LOG_KEY);
+      safeRemove(GEM_BLOCK_KEY);
+      renderApiLog();
+      toast('Registro svuotato.', 'ok');
+    }
+
+    function copyApiLog() {
+      const text = JSON.stringify(readApiLog(), null, 1);
+      navigator.clipboard.writeText(text).then(() => toast('✓ Registro copiato.', 'ok'))
+        .catch(() => toast('Impossibile copiare il registro.', 'err'));
+    }
+
+    // Prova ogni modello dei livelli con una richiesta minima (usa 1 richiesta per modello)
+    async function checkGeminiModels() {
+      const key = cleanKey(document.getElementById('apiInput').value) || apiKey;
+      if (provider !== 'gemini' || !key) { toast('Seleziona Google Gemini e inserisci la chiave.', 'err'); return; }
+      apiKey = key;
+      _geminiModelsCache = null;
+      const avail = await discoverGeminiModels();
+      const models = [...new Set([...GEM_TIERS.heavy, ...GEM_TIERS.light])];
+      toast('Verifica dei modelli in corso...', 'ok');
+      for (const model of models) {
+        if (avail && !avail.has(model)) { apiLog({ step: 'Verifica modelli', model, outcome: 'verifica', msg: 'non presente nell\'elenco della chiave' }); continue; }
+        const t0 = Date.now();
+        try {
+          const res = await fetch(`/api/gemini/${model}:generateContent`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+            body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Rispondi solo: ok' }] }] })
+          });
+          const j = await res.json().catch(() => ({}));
+          const u = j.usageMetadata || {};
+          apiLog({ step: 'Verifica modelli', model, ver: j.modelVersion || '', outcome: res.ok ? 'ok' : 'errore', http: res.status,
+            ms: Date.now() - t0, tin: u.promptTokenCount || 0, tout: u.candidatesTokenCount || 0, tthink: u.thoughtsTokenCount || 0,
+            msg: res.ok ? 'disponibile' : String(j.error?.message || '').slice(0, 300) });
+        } catch (e) {
+          apiLog({ step: 'Verifica modelli', model, outcome: 'errore', msg: e.message, ms: Date.now() - t0 });
+        }
+      }
+      renderApiLog();
+      toast('✓ Verifica completata: risultati nel registro.', 'ok');
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  LOADING / TOAST
     // ══════════════════════════════════════════════════════════════
     function setOv(msg, pct) {
       document.getElementById('ov').classList.add('on');
       document.getElementById('ovS').textContent = msg || '';
-      document.getElementById('bar').style.width = (pct || 0) + '%';
+      if (pct !== undefined) document.getElementById('bar').style.width = pct + '%';
     }
     function hideOv() { document.getElementById('ov').classList.remove('on'); document.getElementById('bar').style.width = '0%'; }
     function toast(msg, type) {
