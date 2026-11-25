@@ -2308,6 +2308,16 @@ pre.code-block {
 .callout.callout-tip { border-left-color: #22C55E; }
 .callout.callout-example { border-left-color: #0EA5E9; }
 .callout.callout-important { border-left-color: #F59E0B; }
+/* Altri tipi di callout di Obsidian (con i loro alias) */
+.callout.callout-note, .callout.callout-info, .callout.callout-todo { border-left-color: #3B82F6; }
+.callout.callout-abstract, .callout.callout-summary, .callout.callout-tldr { border-left-color: #06B6D4; }
+.callout.callout-hint { border-left-color: #22C55E; }
+.callout.callout-success, .callout.callout-check, .callout.callout-done { border-left-color: #16A34A; }
+.callout.callout-question, .callout.callout-help, .callout.callout-faq { border-left-color: #A855F7; }
+.callout.callout-caution, .callout.callout-attention { border-left-color: #EF4444; }
+.callout.callout-failure, .callout.callout-fail, .callout.callout-missing,
+.callout.callout-danger, .callout.callout-error, .callout.callout-bug { border-left-color: #DC2626; background: rgba(220, 38, 38, 0.06); }
+.callout.callout-quote, .callout.callout-cite { border-left-color: #94A3B8; font-style: italic; }
 .nc mark { background: rgba(250, 204, 21, 0.45); color: inherit; padding: 0 3px; border-radius: 3px; }
 .nc .ob-link { color: var(--btn-primary); border-bottom: 1px dotted var(--btn-primary); }
 .nc .ob-embed { display: inline-block; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: .85em; }

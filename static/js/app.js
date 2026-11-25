@@ -80,6 +80,7 @@
       return t.replace(/\s{2,}/g, ' ').trim();
     }
 
+    const LONG_TRANSCRIPT_CHARS = 120000;
     const WORDS_PER_CHUNK = 1500;
     function splitChunks(text) {
       const words = text.split(/\s+/);
@@ -1457,18 +1458,24 @@ document.addEventListener('visibilitychange', () => {
     //  PROMPT SYSTEM — base comune + pannello disciplina
     // ══════════════════════════════════════════════════════════════
 
-    const BASE_SYS = `Sei un assistente accademico universitario MULTIDISCIPLINARE.
-Genera appunti universitari completi e precisi ma sintetici, ADATTANDO il formato
-alla disciplina della lezione. Rispondi ESCLUSIVAMENTE con JSON valido.
-ZERO testo fuori dal JSON. Nessun recinto di codice attorno al JSON.
+    const BASE_SYS = `Sei un assistente accademico universitario multidisciplinare.
+Trasformi la trascrizione di una lezione in appunti universitari completi, fedeli, chiari e facili da ripassare, adattando il formato alla disciplina.
+Rispondi ESCLUSIVAMENTE con JSON valido: nessun testo fuori dal JSON e nessun recinto di codice attorno al JSON.
 
-Schema JSON:
+Schema JSON (rispetta quest'ordine dei campi):
 {
-  "title": "Titolo lezione",
+  "title": "Titolo che dice di cosa parla la lezione",
   "subject": "Materia (disciplina accademica riconoscibile)",
   "key_topics": ["t1","t2","t3"],
+  "lecture_outline": {
+    "tesi": "l'idea centrale della lezione in 1-2 frasi",
+    "sequenza": ["argomenti nell'ordine in cui il professore li tratta"],
+    "elenchi_numerati": ["ogni elenco di N elementi della lezione, es. N fasi: F1 ..., F2 ..., F3 ..."],
+    "termini_corretti": [{"sentito":"forma trascritta","corretto":"termine corretto"}],
+    "dubbi": ["termini non riconoscibili, riportati come sentiti"]
+  },
   "pdf_alignment": "posizione nel PDF se presente, stringa vuota altrimenti",
-  "notes_md": "Markdown, NON HTML. ## per ogni concetto/argomento distinto (UNA sezione per argomento, anche 8-12 se servono, mai un blocco unico), ### per sotto-punti, testo discorsivo normale. Per elenchi di concetti/casi/esempi usa SEMPRE - **Nome o Caso:** spiegazione concisa (grassetto sul termine prima dei due punti). Usa *corsivo* per termini tecnici o citazioni. Codice in blocco di codice Markdown SOLO per materie tecniche. Note importanti: > [!note] testo (oppure [!warning], [!tip], [!example]). Formule matematiche in LaTeX SOLO se la disciplina le usa: inline tra $...$, display tra $$...$$. Nel JSON ogni backslash va raddoppiato (es. \\\\frac). Riferimenti al PDF: una riga che inizia con 📄 p.X: ...",
+  "notes_md": "appunti in Markdown Obsidian che seguono lecture_outline, le regole sotto e le skill",
   "diagrams": [
     {"type":"flowchart","title":"Titolo","nodes":[{"id":"A","label":"Passo A","shape":"rect"},{"id":"B","label":"Condizione?","shape":"diamond"}],"edges":[{"from":"A","to":"B","label":""}]},
     {"type":"mindmap","title":"Mappa","root":"Argomento","children":[{"label":"Concetto A","children":[{"label":"Dettaglio 1"}]},{"label":"Concetto B","children":[]}]}
@@ -1478,7 +1485,7 @@ Schema JSON:
     "key_points": ["p1","p2","p3","p4","p5"],
     "definitions": [{"term":"termine","def":"definizione"}],
     "difficulty": "Base|Intermedio|Avanzato",
-    "missing_from_lecture": "parti PDF non trattate, stringa vuota se no PDF"
+    "missing_from_lecture": "parti del PDF non trattate, stringa vuota se non c'è PDF"
   },
   "flashcards": [{"question":"q","answer":"a"}]
 }
@@ -1486,41 +1493,27 @@ Schema JSON:
 ═══ ISTRUZIONI SPECIFICHE PER QUESTA DISCIPLINA ═══
 {DISCIPLINE_PANEL}
 
-═══ REGOLE UNIVERSALI ═══
-- Min 2 diagrammi. Min 7 flashcard. Tutto in italiano.
-- Organizza SEMPRE in sezioni tematiche separate (un h2 per argomento), mai testo indistinto.
+═══ 1. FEDELTÀ (priorità massima) ═══
+- La trascrizione è automatica e può contenere errori di riconoscimento vocale. Prima di scrivere notes_md, compila lecture_outline.
+- Se un termine è chiaramente la storpiatura di un termine noto e il contesto non lascia dubbi, scrivi il termine corretto e annotalo in termini_corretti.
+- Se non sei sicuro, riporta la forma sentita seguita da [?] e aggiungila a dubbi. Non indovinare.
+- Riporta i riferimenti specifici che il professore cita: nomi propri, titoli, date, numeri, sigle, casi, esempi, aneddoti (questi ultimi in 1-2 frasi). Non sostituirli con formule generiche come "alcuni autori sostengono".
+- Non aggiungere strumenti, autori, esempi o fonti che il professore non ha citato, anche se pertinenti.
+- Se la lezione elenca N livelli, fasi, tipi o autori, negli appunti ce ne sono esattamente N, nello stesso ordine e senza accorparli.
+- Ometti il rumore: comunicazioni organizzative, battute, divagazioni non legate all'argomento.
 
-PROCEDURA MENTALE OBBLIGATORIA prima di scrivere notes_md:
-  1) Elenca mentalmente TUTTI i concetti/argomenti distinti della lezione.
-  2) Per OGNI concetto, individua i RIFERIMENTI SPECIFICI che il professore ha citato:
-     nomi propri (persone, autori, aziende, istituzioni), titoli di opere o progetti,
-     date, numeri, sigle tecniche, casi-studio, esempi concreti, aneddoti didattici.
-  3) Scrivi il testo includendo SEMPRE (2). Un concetto senza il suo riferimento
-     specifico è considerato INCOMPLETO.
+═══ 2. STRUTTURA E FORMATO ═══
+- notes_md segue lecture_outline.sequenza: una sezione ## per argomento, nell'ordine della lezione (di solito 5-10 sezioni). Il titolo # lo aggiunge l'app.
+- Se la lezione è costruita su una progressione (livelli, fasi, passi), quella è la spina dorsale degli appunti: ha una sezione sua e, se gli schemi sono attivi, uno schema.
+- Hai a disposizione tutta la sintassi di Obsidian descritta nelle skill (evidenze colorate, callout, tabelle, frecce, note a piè di pagina, link, tag, formule, codice, schemi). Usa ogni strumento quando rende gli appunti più chiari, scegliendolo come indicano le skill.
+- Scrivi in Markdown; l'HTML solo nei casi previsti dalla skill comandi-markdown.
+- Codice in blocchi solo per materie tecniche. Formule LaTeX solo se la disciplina le usa: inline $...$, display $$...$$. Nel JSON ogni backslash va raddoppiato (es. \\\\frac).
+- Riferimenti al PDF: una riga che inizia con 📄 p.X: ...
 
-REGOLE SUI RIFERIMENTI (universali):
-- MANTIENI i riferimenti specifici che il professore cita a supporto di un concetto.
-  Adatta il tipo di riferimento alla disciplina (vedi pannello sopra).
-- NON sostituire MAI un riferimento specifico con una formula astratta tipo
-  "esistono casi in cui..." o "alcuni autori sostengono...".
-- Se il prof cita un NOME PROPRIO, una DATA, un TITOLO, una SIGLA → riportali
-  ESATTAMENTE come pronunciati. Non parafrasare, non generalizzare.
-- Se il prof racconta un'esperienza personale come esempio didattico,
-  riportala in 1-2 frasi: serve a fissare il concetto.
-
-REGOLA SUI NUMERI (CRITICA):
-- Se la lezione elenca N livelli / N fasi / N tipologie / N modelli / N autori /
-  N correnti / N principi → riportali TUTTI. Non fermarti ai primi due.
-  Non accorpare due elementi in uno.
-- Esempio: 4 livelli → 4 livelli distinti. 3 fasi → 3 fasi distinte.
-- Se nella tua risposta N_non coincide con N della lezione → è un errore.
-
-DISTINGUI CONTENUTO da RUMORE:
-- CONTENUTO (da tenere): concetti, definizioni, esempi, aneddoti didattici,
-  nomi propri, dati, citazioni, riferimenti bibliografici/culturali/scientifici.
-- RUMORE (da omettere): comunicazioni organizzative (avvisi, scadenze, logistica
-  di viaggi, iscrizioni a eventi), battute, commenti personali non legati
-  all'argomento, divagazioni su temi non inerenti alla lezione.`;
+═══ 3. ALTRI CAMPI ═══
+- diagrams: [] se sotto ci sono le skill degli schemi (gli schemi vanno in notes_md come blocchi mermaid). Altrimenti da 1 a 3 diagrammi, solo per processi o gerarchie presenti nella lezione.
+- flashcards: almeno 7, su concetti della lezione.
+- Tutto in italiano.`;
 
     const PRESET_PANELS = {
       informatica: `DISCIPLINA: Informatica / Ingegneria / Scienze informatiche.
@@ -1545,7 +1538,7 @@ Riferimenti tipici: articoli di legge (es. "art. 2043 c.c.", "art. 575 c.p."),
 codici (c.c., c.p., c.p.c., c.p.p., Cost., TUE, TFUE), sentenze (es. "Cass. SS.UU.
 12345/2020"), dottrina (Carnelutti, Satta, Criscuolo, ecc.), istituti giuridici,
 principi generali dell'ordinamento.
-Formato: NIENTE LaTeX. Uso di <em> per i termini latini (es. <em>pacta sunt servanda</em>).
+Formato: NIENTE LaTeX. Corsivo *...* per i termini latini (es. *pacta sunt servanda*).
 Diagrammi: mindmap per mappe di istituti; flowchart per iter processuali.
 Citare le norme ESATTAMENTE come pronunciate dal prof (numero + fonte).`,
 
@@ -1562,7 +1555,7 @@ Riferimenti tipici: autori (Kant, Manzoni, Leopardi, Foucault), opere ("Critica
 della Ragion Pura", "Promessi Sposi"), date (1781, 1815, 1968), correnti
 (Idealismo, Verismo, Postmoderno, Scuola delle Annales), luoghi storici, eventi.
 Formato: NIENTE LaTeX. Citazioni testuali tra virgolette con attribuzione.
-Uso frequente di <em> per titoli di opere (in stile italiano).
+Corsivo *...* per i titoli di opere (in stile italiano).
 Diagrammi: mindmap per mappe concettuali/autori; flowchart per sequenze storiche
 o genealogie di pensiero.
 Riporta SEMPRE le date con anno, i nomi completi, i titoli nella lingua originale
@@ -1573,7 +1566,7 @@ Riferimenti tipici: leggi fisiche (Newton, Ohm, Coulomb), costanti universali
 (g, h, c, N_A), reazioni chimiche, teoremi, dimostrazioni, esperimenti storici
 (Michelson-Morley, Rutherford), simboli matematici.
 Formato: LaTeX SEMPRE per formule, dimostrazioni, reazioni chimiche.
-Blocchi <pre> solo per pseudocodice di calcolo numerico.
+Blocchi di codice Markdown solo per pseudocodice di calcolo numerico.
 Diagrammi: flowchart per procedure sperimentali; mindmap per classificazioni.
 Riporta SEMPRE unità di misura corrette e cifre significative se menzionate.`,
 
@@ -1598,11 +1591,27 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
     function getCustomKey(p) { return 'lai_preset_custom_' + p; }
     let customPanel = safeGet(getCustomKey(activePreset)) || null;
 
+    // Controllo finale: va in fondo al prompt, dove il modello (soprattutto quello leggero) gli dà più peso
+    const FINAL_CHECK = `
+
+═══ CONTROLLO FINALE (prima di rispondere) ═══
+1. lecture_outline è compilato e ogni voce di "sequenza" ed "elenchi_numerati" compare negli appunti.
+2. Nessuno strumento, autore o esempio aggiunto; i termini incerti hanno [?].
+3. Ogni ## dice un'idea; il primo ## non ripete il titolo.
+4. Evidenze: circa 1 ogni 200 parole, massimo 1 per paragrafo, sempre con l'emoji, mai su nomi propri o parole singole.
+5. Nessuna voce di elenco con il solo grassetto.
+6. Hai usato gli strumenti di Obsidian dove rendono il testo più chiaro (callout, tabelle, frecce, note).`;
+
+    const FINAL_CHECK_SCHEMI = `
+7. Schemi: massimo 6 nodi (al massimo 8), etichette di massimo 5 parole, rombo solo per domande di massimo 3 parole.`;
+
     function getPanel() {
       return customPanel || PRESET_PANELS[activePreset] || PRESET_PANELS[DEFAULT_PRESET];
     }
-    function getSys() {
-      return BASE_SYS.replace('{DISCIPLINE_PANEL}', getPanel()) + getSkillsBlock();
+    // extra: istruzioni aggiuntive (es. unione dei segmenti), inserite prima del controllo finale
+    function getSys(extra) {
+      return BASE_SYS.replace('{DISCIPLINE_PANEL}', getPanel()) + getSkillsBlock() + (extra || '')
+        + FINAL_CHECK + (skillSchemiOn ? FINAL_CHECK_SCHEMI : '');
     }
 
     async function loadSkills() {
@@ -1619,9 +1628,7 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
       const names = skillSchemiOn ? [...SKILL_BASE, ...SKILL_GRAFICI] : SKILL_BASE;
       const parts = names.filter(n => SKILL_TEXT[n]).map(n => '═══ SKILL: ' + n.replace(/\.md$/, '') + ' ═══\n' + SKILL_TEXT[n]);
       if (!parts.length) return '';
-      let out = '\n\n' + parts.join('\n\n');
-      if (skillSchemiOn) out += '\n\nNOTA: con le skill degli schemi attive, gli schemi vanno nel testo come blocchi mermaid e il campo "diagrams" resta []. Non applicare la regola "Min 2 diagrammi" al campo diagrams.';
-      return out;
+      return '\n\n' + parts.join('\n\n');
     }
 
     function onSkillToggle() {
@@ -1629,45 +1636,41 @@ Adatta "key_points" per riflettere decisioni e azioni, non solo concetti teorici
       safeSet(SKILL_SCHEMI_KEY, String(skillSchemiOn));
     }
     function getSysMerge() {
-      return getSys() + `
+      return getSys(`
 
 ────────────────────────────────
-CONTESTO SPECIFICO: stai UNENDO i riassunti di più segmenti di una lezione lunga.
-Dall'insieme dei segmenti devi produrre UN UNICO documento che rispetti ESATTAMENTE
-lo schema JSON descritto sopra. Regole aggiuntive:
-
-- Il campo "notes_md" è OBBLIGATORIO e deve contenere gli appunti COMPLETI e ORGANICI, in Markdown.
-  Non lasciarlo vuoto, non ometterlo, non metterci un riassunto breve: è il corpo principale.
-
-- Min 2 diagrammi, min 10 flashcard.
-
-- Organizza il contenuto in <h2> separati per argomento (anche 10-14 sezioni).
-
-- ⚠️ REGOLA DI NON-PERDITA:
-  Ogni ESEMPIO CONCRETO, NOME PROPRIO, NUMERO, SIGLA, ANEDDOTO DIDATTICO che
-  compare in UNO QUALSIASI dei segmenti DEVE rimanere negli appunti finali.
-  Se due segmenti trattano lo stesso argomento, UNISCI ma NON perdere esempi
-  specifici di nessuno dei due.
-
-- ⚠️ REGOLA SUI NUMERI:
-  Se i segmenti descrivono N livelli / N fasi / N tipologie / N autori / N correnti,
-  la somma negli appunti finali DEVE essere N. Non accorpare, non tagliare.
-
-- Tutto in italiano.`;
+CONTESTO: stai UNENDO gli appunti di più segmenti della stessa lezione in UN UNICO documento con lo schema JSON descritto sopra.
+- notes_md è obbligatorio ed è il corpo completo degli appunti in Markdown: sezioni ##, mai HTML per i titoli.
+- Compila lecture_outline sull'intera lezione; la sequenza segue l'ordine dei segmenti.
+- Non perdere nulla: ogni esempio, nome proprio, numero, sigla o aneddoto di un segmento resta negli appunti finali. Se due segmenti trattano lo stesso argomento, uniscili senza togliere esempi.
+- Se i segmenti descrivono N livelli, fasi o tipi, negli appunti finali ce ne sono N.
+- Flashcard: almeno 10.`);
     }
     // ══════════════════════════════════════════════════════════════
     //  PROMPT SEGMENTO (usato per il chunking di trascrizioni lunghe)
     // ══════════════════════════════════════════════════════════════
     const SYS_CHUNK = `Sei un assistente accademico universitario multidisciplinare.
-Stai analizzando il segmento {N} di {TOT} di una trascrizione di lezione.
+Stai analizzando il segmento {N} di {TOT} di una trascrizione automatica di lezione, che può contenere errori di riconoscimento vocale.
 Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
-{"segment":{N},"topics_covered":["argomento 1","argomento 2"],"key_points":["punto 1","punto 2"],"formulas_or_code":["formula o frammento di codice se presente"],
-"summary_text":"150-200 parole che riassumono il contenuto di questo segmento, mantenendo nomi propri, date, esempi e riferimenti specifici citati dal professore."}`;
+{"segment":{N},"topics_covered":["argomenti nell'ordine in cui compaiono"],"key_points":["punto 1","punto 2"],"formulas_or_code":["formula o codice se presente"],
+"summary_text":"appunti del segmento in Markdown semplice, lunghi circa un terzo del segmento: tutti i concetti, gli esempi, i nomi propri, i numeri e gli aneddoti, nell'ordine della lezione. Nessuna evidenza e nessuno schema. Correggi i termini storpiati solo se il contesto non lascia dubbi; altrimenti scrivi la forma sentita seguita da [?]."}`;
 
     // ══════════════════════════════════════════════════════════════
     //  API CALLS — passano per il proxy Flask locale (niente CORS)
     // ══════════════════════════════════════════════════════════════
     let _geminiModelsCache = null;
+    let _lastModel = '';   // modello che ha prodotto l'ultima risposta (salvato nella lezione)
+
+    // Ordine di prova dei modelli: versione più recente e stabile prima; lite e pro solo come ripiego
+    // 2.5-flash → 3-flash-preview → 2.0-flash → 2.5-flash-lite → 2.5-pro → 2.0-flash-lite
+    function geminiScore(name) {
+      const m = name.match(/gemini-(\d+(?:\.\d+)?)/);
+      let v = m ? parseFloat(m[1]) * 100 : 0;
+      if (/lite/i.test(name)) v -= 120;
+      else if (/pro/i.test(name)) v -= 160;          // quote gratuite basse e risposte lente
+      if (/preview|exp/i.test(name)) v -= 60;        // anteprime dopo le versioni stabili
+      return v;
+    }
 
     async function discoverGeminiModels() {
       if (_geminiModelsCache) return _geminiModelsCache;
@@ -1678,20 +1681,43 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         const valid = (data.models || [])
           .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
           .filter(m => /gemini-[23]/i.test(m.name))
+          .filter(m => !/(tts|image|live|audio|embedding|vision|learnlm|robotics|computer-use)/i.test(m.name))
           .map(m => m.name.replace('models/', ''))
-          .sort((a, b) => {
-            const sc = s => { let v = 0; if (s.includes('2.5')) v += 100; else if (s.includes('2.0')) v += 50; if (s.includes('lite')) v += 10; else if (!s.includes('pro')) v += 5; return v; };
-            return sc(b) - sc(a);
-          });
+          .sort((a, b) => geminiScore(b) - geminiScore(a));
         if (valid.length) { _geminiModelsCache = valid; return valid; }
       } catch (e) { console.warn('[Gemini models]', e); }
       return ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
     }
 
     const GEM_RETRYABLE = new Set([429, 500, 502, 503, 504]);
-    const GEM_MAX_RETRIES_PER_MODEL = 3;
+    const GEM_MAX_RETRIES_PER_MODEL = 2;   // nuovi tentativi sullo stesso modello, poi si passa al successivo
     const GEM_MAX_PASSES = 2;
+    const GEM_MAX_WAIT_MS = 60000;
     function isOverloadMsg(m) { return /overload|UNAVAILABLE|RESOURCE_EXHAUSTED|sovraccaric/i.test(m || ''); }
+
+    // Attesa suggerita da Gemini nella risposta 429 (RetryInfo.retryDelay, es. "37s"), in millisecondi
+    function geminiRetryDelayMs(j) {
+      const det = (j && j.error && j.error.details) || [];
+      for (const d of det) {
+        const s = d && d.retryDelay;
+        if (typeof s === 'string') { const n = parseFloat(s); if (!isNaN(n)) return Math.round(n * 1000); }
+      }
+      const m = String((j && j.error && j.error.message) || '').match(/retry in ([\d.]+)\s*s/i);
+      return m ? Math.round(parseFloat(m[1]) * 1000) : 0;
+    }
+    // Quota giornaliera esaurita: inutile aspettare, si passa subito al modello successivo
+    function geminiDailyQuota(j) {
+      const det = (j && j.error && j.error.details) || [];
+      return det.some(d => (d.violations || []).some(v => /PerDay/i.test(v.quotaId || '')))
+        || /per\s*day|PerDay/i.test(String((j && j.error && j.error.message) || ''));
+    }
+    async function waitWithCountdown(ms, label) {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        setOv(`⏳ ${label} — nuovo tentativo tra ${Math.ceil((end - Date.now()) / 1000)}s`, 20);
+        await new Promise(r => setTimeout(r, Math.min(1000, end - Date.now())));
+      }
+    }
 
     async function callGemini(userMsg, sysOverride) {
       const sys = sysOverride || getSys();
@@ -1699,12 +1725,15 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const models = await discoverGeminiModels();
 
       for (let pass = 1; pass <= GEM_MAX_PASSES; pass++) {
+        let onlyOverload = true;
         for (const model of models) {
           const body = {
             systemInstruction: { parts: [{ text: sys }] },
             contents: [{ role: 'user', parts: [{ text: userMsg || '' }] }],
             generationConfig: { temperature: 0.4, maxOutputTokens: 65536, responseMimeType: 'application/json' }
           };
+          // Il modello leggero non ragiona di default: un piccolo budget lo aiuta a seguire le istruzioni
+          if (/2\.5-flash-lite/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 2048 };
           for (let attempt = 0; attempt <= GEM_MAX_RETRIES_PER_MODEL; attempt++) {
             try {
               const res = await fetch(`/api/gemini/${model}:generateContent?key=${apiKey}`,
@@ -1714,6 +1743,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
                 const j = await res.json().catch(() => ({}));
                 const msg = j.error?.message || '';
                 if (/API key not valid|API_KEY_INVALID/i.test(msg)) throw new Error('Chiave Gemini non valida.');
+                // Se il modello non accetta il budget di ragionamento, riprova senza
+                if (body.generationConfig.thinkingConfig && /think/i.test(msg)) {
+                  delete body.generationConfig.thinkingConfig; attempt--; continue;
+                }
                 if (msg.includes('not found') || msg.includes('not supported') || res.status === 404) { lastErr = new Error(model + ': ' + msg); break; }
                 throw new Error('Errore Gemini: ' + (msg || 'richiesta non valida'));
               }
@@ -1723,12 +1756,18 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
                 const j = await res.json().catch(() => ({}));
                 const msg = j.error?.message || ('Errore ' + res.status);
                 lastErr = new Error(model + ': ' + msg);
+                const overloaded = res.status !== 429;
+                if (!overloaded) onlyOverload = false;
+                if (res.status === 429 && geminiDailyQuota(j)) {
+                  console.warn('[Gemini] quota giornaliera esaurita su', model);
+                  break;   // modello successivo, senza attese
+                }
                 if (attempt < GEM_MAX_RETRIES_PER_MODEL) {
-                  const wait = Math.min(3000 * Math.pow(2, attempt), 15000) + Math.random() * 800;
-                  const overloaded = res.status === 503 || isOverloadMsg(msg);
-                  const label = overloaded ? `${model} sovraccarico` : `Limite richieste su ${model}`;
-                  setOv(`⏳ ${label} — nuovo tentativo tra ${Math.round(wait / 1000)}s (${attempt + 1}/${GEM_MAX_RETRIES_PER_MODEL})`, 20);
-                  await new Promise(r => setTimeout(r, wait));
+                  // 429: aspetta quanto chiede Gemini (limite al minuto); errori del server: 5s, poi 10s
+                  const suggested = res.status === 429 ? geminiRetryDelayMs(j) : 0;
+                  const wait = Math.min(suggested || (res.status === 429 ? 20000 : 5000 * Math.pow(2, attempt)), GEM_MAX_WAIT_MS) + Math.random() * 800;
+                  const label = overloaded ? `${model} sovraccarico` : `Limite di richieste al minuto su ${model}`;
+                  await waitWithCountdown(wait, label);
                   continue;
                 }
                 break;
@@ -1737,12 +1776,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
               if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error?.message || 'Errore Gemini (' + res.status + ')'); }
 
               const data = await res.json();
-              const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              const raw = data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map(p => p.text || '').join('') || '';
               if (!raw) throw new Error('Gemini ha restituito risposta vuota.');
               if (data.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
                 _lastTruncated = true;
                 console.warn('[Gemini] risposta troncata per MAX_TOKENS');
               }
+              _lastModel = model;
               console.log('[Gemini] ✓', model, 'pass', pass, 'tentativo', attempt);
               return raw;
 
@@ -1753,12 +1793,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
             }
           }
         }
-        if (pass < GEM_MAX_PASSES) {
-          setOv('⏳ Tutti i modelli Gemini sono sovraccarichi — nuovo giro tra 10s...', 20);
-          await new Promise(r => setTimeout(r, 10000));
-        }
+        // Un secondo giro solo se i modelli erano sovraccarichi (non per i limiti di quota)
+        if (pass < GEM_MAX_PASSES && onlyOverload) {
+          await waitWithCountdown(10000, 'Tutti i modelli Gemini sono sovraccarichi');
+        } else break;
       }
       _geminiModelsCache = null;
+      if (lastErr && /quota|429|rate/i.test(lastErr.message)) throw new Error('Limite di richieste Gemini raggiunto su tutti i modelli. Riprova tra qualche minuto. ' + lastErr.message);
       if (lastErr && !isOverloadMsg(lastErr.message)) throw new Error('Errore Gemini: ' + lastErr.message);
       throw new Error('Gemini è sovraccarico al momento. Riprova tra qualche minuto oppure passa su Anthropic Claude dal menu in alto. ' + (lastErr?.message || ''));
     }
@@ -2103,23 +2144,127 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return parsed;
     }
 
-    // Controlli di qualità sugli appunti: restituisce ciò che manca
-    function notesQualityIssues(md) {
-      const t = String(md || '');
+    // ══════════════════════════════════════════════════════════════
+    //  CONTROLLI DI QUALITÀ sugli appunti (evidenze, titoli, elenchi, schemi)
+    //  Restituiscono frasi già pronte da mandare al modello come correzioni.
+    // ══════════════════════════════════════════════════════════════
+    const HL_EMOJI = '🔴|🟠|🟡|🟢|🔵|🟣';
+    const HL_RE = new RegExp('==(' + HL_EMOJI + ')([^=\\n]+?)==', 'gu');
+    const GENERIC_TITLE = /^(introduzione|panoramica|concetti chiave|principi|strategie|strumenti|approfondimenti|conclusioni|riepilogo)$/;
+    const MERMAID_KEYWORDS = /^(flowchart|graph|subgraph|end|direction|TD|TB|LR|RL|BT|class|classDef|style|click|linkStyle)$/;
+
+    const stripCode = md => md.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '');
+    const normText = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
+    const mermaidBlocks = md => [...String(md || '').matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map(m => m[1]);
+
+    function notesQualityIssues(md, title) {
+      const raw = String(md || '');
+      const t = stripCode(raw);
+      const words = (t.match(/\S+/g) || []).length;
       const issues = [];
-      if (t.length > 800 && (t.match(/==(🔴|🟠|🟡|🟢|🔵|🟣)/gu) || []).length < 3) {
-        issues.push('aggiungi almeno 3 evidenze colorate ==🔴...==, ==🟢...== ecc. secondo la skill quando-usare-gli-elementi');
+
+      // ── Evidenze ──
+      const hls = [...t.matchAll(HL_RE)].map(m => m[2].trim());
+      const plain = t.replace(HL_RE, '').match(/==[^=\n]+?==/g) || [];
+      if (plain.length) {
+        issues.push('queste evidenze non hanno il colore: ' + plain.slice(0, 5).join(', ') + '. Aggiungi l\'emoji giusta subito dopo == oppure togli l\'evidenza');
       }
-      if (skillSchemiOn && !/```mermaid/.test(t)) {
-        issues.push('aggiungi ALMENO uno schema Mermaid (blocco di codice con linguaggio mermaid) nella sezione pertinente');
+      if (words >= 300) {
+        const min = Math.max(2, Math.floor(words / 400));
+        const max = Math.ceil(words / 120);
+        if (hls.length < min) issues.push(`ci sono ${hls.length} evidenze colorate, ne servono almeno ${min}: mettile su definizioni (🟢) o su cose da ricordare per l'esame (🟡)`);
+        if (hls.length > max) issues.push(`ci sono ${hls.length} evidenze, il massimo è ${max}: tieni solo le più importanti`);
       }
+      const badHl = hls.filter(x => {
+        const w = x.split(/\s+/);
+        const tuttiNomiPropri = w.every(p => /^[\p{Lu}\d]/u.test(p));
+        return w.length < 2 || w.length > 14 || tuttiNomiPropri;
+      });
+      if (badHl.length) {
+        issues.push('evidenze su una parola sola, su un nome proprio o troppo lunghe: «' + badHl.slice(0, 5).join('», «') + '». Spostale su una frase di 2-12 parole che spiega il concetto, oppure toglile');
+      }
+      const crowded = t.split(/\n\s*\n/).filter(p => (p.match(HL_RE) || []).length > 1).length;
+      if (crowded) issues.push(`${crowded} paragrafi hanno più di un'evidenza: lasciane una per paragrafo`);
+
+      // ── Titoli ──
+      const h2 = [...t.matchAll(/^##\s+(.+)$/gm)].map(m => m[1].trim());
+      const heads = [...t.matchAll(/^#{2,3}\s+(.+)$/gm)].map(m => normText(m[1]));
+      if (title && h2.length && normText(h2[0]) === normText(String(title))) {
+        issues.push('il primo titolo ## ripete il titolo della lezione: sostituiscilo con l\'idea della prima sezione');
+      }
+      const generic = h2.filter(h => GENERIC_TITLE.test(normText(h)));
+      if (generic.length) issues.push('titoli troppo generici: ' + generic.join(', ') + '. Ogni titolo deve dire l\'idea della sezione');
+      const dup = [...new Set(heads.filter((h, i) => heads.indexOf(h) !== i))];
+      if (dup.length) issues.push('titoli ripetuti: ' + dup.join(', '));
+
+      // ── Elenchi ──
+      const bare = (t.match(/^\s*[-*+]\s+\*\*[^*\n]+\*\*:?\s*$/gm) || []).length;
+      if (bare) issues.push(`${bare} voci di elenco hanno solo il termine in grassetto: aggiungi la spiegazione data a lezione oppure trasforma l'elenco in una frase`);
+
+      // ── Schemi ──
+      const blocks = mermaidBlocks(raw);
+      if (skillSchemiOn && words >= 600 && !blocks.length) {
+        issues.push('aggiungi uno schema mermaid nella sezione con un processo o una progressione (se non c\'è, una mindmap della lezione)');
+      }
+      blocks.forEach((b, i) => {
+        const n = i + 1;
+        if (!/^\s*(flowchart|graph)\b/.test(b)) return;
+        const righe = b.split('\n').filter(r => r.trim() && !/^\s*(classDef|class|style|linkStyle|%%)/.test(r));
+        const ids = new Set();
+        righe.slice(1).forEach(r => {
+          for (const m of r.matchAll(/(?:^|[\s>|;&-])([A-Za-z]\w*)(?=\s*[\[\(\{]|\s*(?:-->|==>|-\.->|---|--\s|$))/g)) {
+            if (!MERMAID_KEYWORDS.test(m[1])) ids.add(m[1]);
+          }
+        });
+        if (ids.size > 8) issues.push(`lo schema ${n} ha ${ids.size} nodi: riducilo a 6 o dividilo in due schemi`);
+        const rombi = [...b.matchAll(/(?<!\{)\{\s*"?([^{}"]+?)"?\s*\}(?!\})/g)].map(m => m[1].trim());
+        const rombiLunghi = rombi.filter(x => x.split(/\s+/).length > 3 || x.length > 28);
+        if (rombiLunghi.length) issues.push(`nello schema ${n} il rombo contiene una frase: «${rombiLunghi[0]}». Il rombo serve solo per una domanda di massimo 3 parole; trasforma l'azione in un rettangolo`);
+        if (/[\[\(\{]\s*"?\d+\.\s/.test(b)) issues.push(`nello schema ${n} un'etichetta inizia con "numero e punto": scrivi "L1 ·" o "Fase 1"`);
+        if (/[\[\(]\s*"?end"?\s*[\]\)]/.test(b)) issues.push(`nello schema ${n} c'è un nodo "end" minuscolo: scrivi "Fine"`);
+      });
+
       return issues;
     }
 
+    // Validità della sintassi degli schemi con il parser di Mermaid
+    async function mermaidSyntaxIssues(md) {
+      if (typeof mermaid === 'undefined' || !mermaid.parse) return [];
+      const out = [];
+      const blocks = mermaidBlocks(md);
+      for (let i = 0; i < blocks.length; i++) {
+        let ok = false;
+        try { ok = await mermaid.parse(blocks[i], { suppressErrors: true }); } catch (e) { ok = false; }
+        if (!ok) out.push(`lo schema ${i + 1} ha un errore di sintassi o un tipo che il sito non disegna: riscrivilo con un tipo stabile (flowchart, mindmap, sequenceDiagram, timeline...) ed etichette tra doppi apici`);
+      }
+      return out;
+    }
+
+    async function allNotesIssues(md, title) {
+      return [...notesQualityIssues(md, title), ...(await mermaidSyntaxIssues(md))];
+    }
+
+    // Correzione mirata: il modello riceve solo gli appunti e restituisce solo notes_md
+    function getSysFix() {
+      return 'Sei un correttore di formato per appunti universitari in Markdown Obsidian. '
+        + 'Correggi SOLO i problemi elencati nel messaggio. Non togliere, non aggiungere e non riassumere contenuti. '
+        + 'Rispondi solo con JSON valido nella forma {"notes_md": "..."}. Nel JSON ogni backslash va raddoppiato.'
+        + getSkillsBlock();
+    }
+
     function qualityRetryMsg(notesMd, issues) {
-      return 'Ecco gli appunti generati:\n\n' + notesMd
-        + '\n\nCorreggi questi punti: ' + issues.join('; ') + '. '
-        + 'Non cambiare, non eliminare e non riassumere il resto. Rispondi con il JSON completo, con tutti i campi.';
+      return 'Problemi da correggere:\n- ' + issues.join('\n- ')
+        + '\n\nCambia solo le evidenze, i titoli, gli elenchi e gli schemi indicati. Tutto il resto deve restare identico.'
+        + '\n\nAPPUNTI:\n' + notesMd;
+    }
+
+    // La correzione viene accettata solo se non toglie contenuto e riduce i problemi
+    async function acceptFix(oldMd, newMd, oldIssueCount, title) {
+      const count = (s, re) => (s.match(re) || []).length;
+      if (newMd.trim().length < oldMd.trim().length * 0.9) return false;            // ha tagliato contenuto
+      if (count(newMd, /^##\s/gm) < count(oldMd, /^##\s/gm)) return false;          // ha tolto sezioni
+      if (count(newMd, /```mermaid/g) < count(oldMd, /```mermaid/g)) return false;  // ha tolto schemi
+      return (await allNotesIssues(newMd, title)).length < oldIssueCount;           // deve migliorare
     }
 
     async function generate() {
@@ -2179,12 +2324,14 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
       // Una riga della casella di testo = un punto che non deve andare perso
       const notesItems = textTr ? userNoteItems(textTr) : [];
-      // Soglia in caratteri: sopra questa lunghezza si usa il lavoro a blocchi (niente tagli silenziosi)
-      const isLong = hasTr && normMath(compressTranscript(rawTr)).length > 20000;
+      // Soglia in caratteri: sopra questa lunghezza si usa il lavoro a blocchi (niente tagli silenziosi).
+      // 120.000 caratteri ≈ 2-3 ore di lezione ≈ 35.000 token: una sola chiamata mantiene tutti i dettagli.
+      const isLong = hasTr && normMath(compressTranscript(rawTr)).length > LONG_TRANSCRIPT_CHARS;
       if (!hasTr && !hasPdf && !notesItems.length) { toast('Nessun contenuto da elaborare.', 'err'); return; }
 
       await skillsReady;
       _lastTruncated = false;
+      _lastModel = '';
       setOv('Preparando...', 5);
       try {
         let parsed;
@@ -2201,19 +2348,31 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           parsed = parseJSON(await callAI(buildDirectMsg(rawTr, hasTr, hasPdf, notesItems)));
         }
         parsed = ensureUserNotes(parsed, notesItems);
-        const issues = notesQualityIssues(parsed.notes_md);
-        if (issues.length) {
-          setOv('Completo gli appunti (evidenze e schemi)...', 88);
+        const genModel = _lastModel;   // prima della correzione, che può usare un altro modello
+        const issues = await allNotesIssues(parsed.notes_md, parsed.title);
+        if (issues.length && String(parsed.notes_md || '').trim()) {
+          console.warn('[qualità] da correggere:', issues.join('; '));
+          setOv('Sistemo evidenze, titoli e schemi...', 88);
           try {
-            const again = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md || '', issues)));
-            if (String(again.notes_md || '').trim()) parsed = ensureUserNotes(again, notesItems);
-          } catch (e) { console.warn('[qualità] nuovo tentativo fallito:', e.message); }
-          const left = notesQualityIssues(parsed.notes_md);
+            const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues), getSysFix()));
+            const newMd = String(fixed.notes_md || '');
+            if (newMd && await acceptFix(parsed.notes_md, newMd, issues.length, parsed.title)) {
+              parsed.notes_md = newMd;                       // cambia solo notes_md
+              parsed = ensureUserNotes(parsed, notesItems);
+              parsed.quality_fix = 'accettata';
+            } else {
+              parsed.quality_fix = 'scartata';
+              console.warn('[qualità] correzione scartata: peggiora o toglie contenuto');
+            }
+          } catch (e) { parsed.quality_fix = 'fallita'; console.warn('[qualità] correzione fallita:', e.message); }
+          const left = notesQualityIssues(parsed.notes_md, parsed.title);
           if (left.length) console.warn('[qualità] ancora da migliorare:', left.join('; '));
           if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
             toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');
           }
         }
+        // Modello che ha prodotto gli appunti (utile per capire un risultato scarso)
+        parsed.model = provider === 'gemini' ? (genModel || 'gemini') : provider === 'anthropic' ? ANTHROPIC_MODEL : 'deepseek-chat';
         console.log('[LectureAI] Risposta AI parsata:', parsed);
         console.log('[LectureAI] Campi presenti:', Object.keys(parsed || {}).join(', '));
         if (!String(parsed.notes_md || parsed.notes_html || '').trim()) {
@@ -2385,8 +2544,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const refNum = id => { let k = order.indexOf(id); if (k < 0) { order.push(id); k = order.length - 1; } return k + 1; };
       // Codice (blocchi e inline) intatto; nel resto: sintassi Obsidian, note e formule
       const pieces = fn.body.split(/(```[\s\S]*?```|`[^`\n]+`)/); // indici dispari = codice
+      let inl = 0;
       let protectedSrc = pieces.map((seg, i) => {
         if (i % 2 === 1) return seg;
+        // Note inline ^[testo] → stessa resa delle note [^id] (le formule non vengono toccate)
+        seg = seg.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$)/).map((part, k) => k % 2 === 1 ? part
+          : part.replace(/\^\[([^\]\n]+)\]/g, (_, text) => { const id = '__inl' + (inl++); fn.defs[id] = text; return '[^' + id + ']'; })
+        ).join('');
         const withRefs = seg.replace(/\[\^([^\]\s]+)\](?!:)/g, (m, id) => (
           Object.prototype.hasOwnProperty.call(fn.defs, id)
             ? '<sup><a href="#fn-' + refNum(id) + '">' + refNum(id) + '</a></sup>'
@@ -2449,6 +2613,23 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
     }
 
+    // Termini corretti dalla trascrizione e termini da verificare (da lecture_outline)
+    function transcriptTerms(d) {
+      const o = (d && d.lecture_outline) || {};
+      const fixed = (Array.isArray(o.termini_corretti) ? o.termini_corretti : [])
+        .filter(t => t && t.sentito && t.corretto && String(t.sentito).trim() !== String(t.corretto).trim());
+      const doubts = (Array.isArray(o.dubbi) ? o.dubbi : []).filter(x => String(x || '').trim());
+      return { fixed, doubts };
+    }
+    function transcriptTermsHtml(d) {
+      const { fixed, doubts } = transcriptTerms(d);
+      if (!fixed.length && !doubts.length) return '';
+      let h = '<div class="callout callout-note"><strong>🔎 Dalla trascrizione</strong>';
+      if (fixed.length) h += '<p>Termini corretti: ' + fixed.map(t => escHtml(t.sentito) + ' → <strong>' + escHtml(t.corretto) + '</strong>').join(', ') + '</p>';
+      if (doubts.length) h += '<p>Da verificare: ' + doubts.map(x => escHtml(x)).join(', ') + '</p>';
+      return h + '</div>';
+    }
+
     function renderNotes(d) {
       document.getElementById('e-notes').style.display = 'none';
       const el = document.getElementById('notesEl'); el.style.display = 'block';
@@ -2485,8 +2666,9 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       }
 
       el.innerHTML = '<h1>' + escHtml(d.title || 'Appunti') + '</h1>'
-        + '<div class="sub">' + escHtml(d.subject || '') + ' · ' + new Date().toLocaleDateString('it-IT') + '</div>'
-        + pdfB + body;
+        + '<div class="sub">' + escHtml(d.subject || '') + ' · ' + new Date().toLocaleDateString('it-IT')
+        + (d.model ? ' · ' + escHtml(d.model) : '') + '</div>'
+        + pdfB + body + transcriptTermsHtml(d);
       rK(el);
       renderMermaidIn(el);
     }
@@ -2765,6 +2947,14 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         md += '---\n\n';
         md += '# ' + (d.title || 'Appunti') + '\n\n';
         md += d.notes_md.trim() + '\n\n';
+        const tt = transcriptTerms(d);
+        if (tt.fixed.length || tt.doubts.length) {
+          md += '> [!note]- 🔎 Dalla trascrizione\n';
+          if (tt.fixed.length) md += '> Termini corretti: ' + tt.fixed.map(t => t.sentito + ' → **' + t.corretto + '**').join(', ') + '\n';
+          if (tt.fixed.length && tt.doubts.length) md += '>\n';
+          if (tt.doubts.length) md += '> Da verificare: ' + tt.doubts.join(', ') + '\n';
+          md += '\n';
+        }
       } else {
         md += '# ' + (d.title || 'Appunti') + '\n\n';
         const meta = [];
