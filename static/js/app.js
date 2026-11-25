@@ -693,9 +693,10 @@ document.addEventListener('visibilitychange', () => {
       setAok(k ? 'ok' : '');
     }
     // Chiavi Gemini: formato classico (AIza...) e formato nuovo di AI Studio (AQ....)
+    function cleanKey(v) { return String(v || '').replace(/[\s\u200B-\u200D\u2060\uFEFF"'`]/g, ''); }
     function isGeminiKey(v) { return /^(AIza|AQ\.)\S{10,}$/.test(v); }
     function onKeyInput() {
-      const v = document.getElementById('apiInput').value.trim();
+      const v = cleanKey(document.getElementById('apiInput').value);
       let ok;
       if (provider === 'gemini') ok = isGeminiKey(v);
       else if (provider === 'anthropic') ok = v.startsWith('sk-ant-');
@@ -703,7 +704,8 @@ document.addEventListener('visibilitychange', () => {
       setAok(v.length > 8 ? (ok ? 'ok' : 'warn') : '');
     }
     function saveKey() {
-      const v = document.getElementById('apiInput').value.trim();
+      const v = cleanKey(document.getElementById('apiInput').value);
+      document.getElementById('apiInput').value = v;
       let ok, hint;
       if (provider === 'gemini') { ok = isGeminiKey(v); hint = 'Chiave Gemini: deve iniziare con AIza oppure con AQ. (formato nuovo di AI Studio)'; }
       else if (provider === 'anthropic') { ok = v.startsWith('sk-ant-'); hint = 'Chiave Anthropic: deve iniziare con sk-ant-'; }
@@ -2018,9 +2020,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     async function uploadAudioToGemini(file, apiKey) {
-      const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`, {
+      const initRes = await fetch('https://generativelanguage.googleapis.com/upload/v1beta/files', {
         method: 'POST',
         headers: {
+          'x-goog-api-key': apiKey,
           'X-Goog-Upload-Protocol': 'resumable',
           'X-Goog-Upload-Command': 'start',
           'X-Goog-Upload-Header-Content-Length': String(file.size),
@@ -2032,6 +2035,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       
       if (!initRes.ok) {
         const err = await initRes.text();
+        if (/API key not valid|API_KEY_INVALID|UNAUTHENTICATED/i.test(err)) throw new Error('Chiave Gemini non valida: incolla la chiave nel campo in alto e premi Salva.');
         throw new Error('Inizializzazione upload fallita: ' + err.slice(0, 200));
       }
       
@@ -2070,9 +2074,9 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         generationConfig: { temperature: 0.2 }
       };
       
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body)
       });
       
@@ -2286,7 +2290,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     }
 
     async function generate() {
-      const key = apiKey || document.getElementById('apiInput').value.trim();
+      // Conta la chiave scritta nel campo: una salvata in precedenza potrebbe essere vecchia
+      const key = cleanKey(document.getElementById('apiInput').value) || apiKey;
       if (!key) { toast('Inserisci la API key e premi Salva.', 'err'); return; }
       apiKey = key;
 
