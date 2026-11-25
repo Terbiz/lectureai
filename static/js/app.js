@@ -666,7 +666,7 @@ document.addEventListener('visibilitychange', () => {
         console.warn('[LectureAI] init fallito, uso default:', e);
       }
       document.getElementById('apiInput').placeholder =
-        provider === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
+        provider === 'gemini' ? 'AIza... o AQ.... (aistudio.google.com)'
           : provider === 'anthropic' ? 'sk-ant-... (console.anthropic.com)'
             : 'sk-... (platform.deepseek.com)';
       try { renderFolders(); } catch (e) { console.warn('[LectureAI] renderFolders fallito:', e); }
@@ -687,15 +687,17 @@ document.addEventListener('visibilitychange', () => {
       const k = safeGet('lai_key_' + provider) || '';
       document.getElementById('apiInput').value = k; apiKey = k;
       document.getElementById('apiInput').placeholder =
-        provider === 'gemini' ? 'AIzaSy... (aistudio.google.com)'
+        provider === 'gemini' ? 'AIza... o AQ.... (aistudio.google.com)'
           : provider === 'anthropic' ? 'sk-ant-... (console.anthropic.com)'
             : 'sk-... (platform.deepseek.com)';
       setAok(k ? 'ok' : '');
     }
+    // Chiavi Gemini: formato classico (AIza...) e formato nuovo di AI Studio (AQ....)
+    function isGeminiKey(v) { return /^(AIza|AQ\.)\S{10,}$/.test(v); }
     function onKeyInput() {
       const v = document.getElementById('apiInput').value.trim();
       let ok;
-      if (provider === 'gemini') ok = v.startsWith('AIza');
+      if (provider === 'gemini') ok = isGeminiKey(v);
       else if (provider === 'anthropic') ok = v.startsWith('sk-ant-');
       else ok = v.startsWith('sk-');
       setAok(v.length > 8 ? (ok ? 'ok' : 'warn') : '');
@@ -703,7 +705,7 @@ document.addEventListener('visibilitychange', () => {
     function saveKey() {
       const v = document.getElementById('apiInput').value.trim();
       let ok, hint;
-      if (provider === 'gemini') { ok = v.startsWith('AIza'); hint = 'Chiave Gemini: deve iniziare con AIza'; }
+      if (provider === 'gemini') { ok = isGeminiKey(v); hint = 'Chiave Gemini: deve iniziare con AIza oppure con AQ. (formato nuovo di AI Studio)'; }
       else if (provider === 'anthropic') { ok = v.startsWith('sk-ant-'); hint = 'Chiave Anthropic: deve iniziare con sk-ant-'; }
       else { ok = v.startsWith('sk-'); hint = 'Chiave DeepSeek: deve iniziare con sk-'; }
       if (!ok) { toast(hint, 'err'); return; }
@@ -1676,7 +1678,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     async function discoverGeminiModels() {
       if (_geminiModelsCache) return _geminiModelsCache;
       try {
-        const res = await fetch(`/api/gemini-models?key=${apiKey}`);
+        const res = await fetch('/api/gemini-models', { headers: { 'X-Api-Key': apiKey } });
         if (!res.ok) return ['gemini-2.5-flash', 'gemini-2.0-flash'];
         const data = await res.json();
         const valid = (data.models || [])
@@ -1737,8 +1739,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
           if (/2\.5-flash-lite/i.test(model)) body.generationConfig.thinkingConfig = { thinkingBudget: 2048 };
           for (let attempt = 0; attempt <= GEM_MAX_RETRIES_PER_MODEL; attempt++) {
             try {
-              const res = await fetch(`/api/gemini/${model}:generateContent?key=${apiKey}`,
-                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+              const res = await fetch(`/api/gemini/${model}:generateContent`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey }, body: JSON.stringify(body) });
 
               if (res.status === 404 || res.status === 400) {
                 const j = await res.json().catch(() => ({}));

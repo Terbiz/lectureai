@@ -58,12 +58,18 @@ def ping():
     return '', 204
 
 # ── Proxy Gemini ──────────────────────────────────────────────────────────────
+# La chiave arriva nell'header X-Api-Key (o, per compatibilità, in ?key=) e va a Google
+# nell'header x-goog-api-key: funziona sia con le chiavi AIza... sia con le nuove AQ....
+# e non finisce negli indirizzi (quindi neanche nei log del server).
+def _gemini_key():
+    return (request.headers.get('X-Api-Key', '') or request.args.get('key', '')).strip()
+
 @app.route('/api/gemini/<path:model_path>', methods=['POST'])
 def proxy_gemini(model_path):
-    api_key = request.args.get('key', '')
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_path}?key={api_key}'
+    api_key = _gemini_key()
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_path}'
     try:
-        resp = requests.post(url, json=request.get_json(), timeout=120)
+        resp = requests.post(url, json=request.get_json(), headers={'x-goog-api-key': api_key}, timeout=120)
         return Response(
             resp.content,
             status=resp.status_code,
@@ -78,10 +84,10 @@ def proxy_gemini(model_path):
 
 @app.route('/api/gemini-models', methods=['GET'])
 def proxy_gemini_models():
-    api_key = request.args.get('key', '')
-    url = f'https://generativelanguage.googleapis.com/v1beta/models?key={api_key}'
+    api_key = _gemini_key()
+    url = 'https://generativelanguage.googleapis.com/v1beta/models'
     try:
-        resp = requests.get(url, timeout=30)
+        resp = requests.get(url, params={'pageSize': 1000}, headers={'x-goog-api-key': api_key}, timeout=30)
         return Response(
             resp.content,
             status=resp.status_code,
@@ -211,8 +217,8 @@ def transcribe_audio():
 
     try:
         resp = requests.post(
-            f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}',
-            json=body, timeout=180
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+            json=body, headers={'x-goog-api-key': api_key}, timeout=180
         )
         if not resp.ok:
             return Response(resp.content, status=resp.status_code, content_type='application/json')
