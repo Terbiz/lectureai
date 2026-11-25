@@ -2120,7 +2120,8 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       // anche quando sei in modalità Live.
       const liveTr = (finalTr + ' ' + interimTr).trim();
       const textTr = pastedTr.trim();
-      const rawTr = ((tmode === 'text' ? textTr : liveTr) || (tmode === 'text' ? liveTr : textTr)).trim();
+      // La trascrizione è la somma delle due caselle, se entrambe hanno contenuto (indipendentemente dalla modalità)
+      const rawTr = [liveTr, textTr].filter(Boolean).join('\n\n');
       const hasTr = rawTr.length > 15, hasPdf = uploadedFiles.length > 0;
       const wordCount = rawTr.split(/\s+/).filter(Boolean).length;
       // Una riga della casella di testo = un punto che non deve andare perso
