@@ -1500,6 +1500,7 @@ Schema JSON (rispetta quest'ordine dei campi):
 - Riporta i riferimenti specifici che il professore cita: nomi propri, titoli, date, numeri, sigle, casi, esempi, aneddoti (questi ultimi in 1-2 frasi). Non sostituirli con formule generiche come "alcuni autori sostengono".
 - Non aggiungere strumenti, autori, esempi o fonti che il professore non ha citato, anche se pertinenti.
 - Se la lezione elenca N livelli, fasi, tipi o autori, negli appunti ce ne sono esattamente N, nello stesso ordine e senza accorparli.
+- Non trasformare un concetto detto a parole in una formula, in codice o in dati che il professore non ha dato: una formula entra negli appunti solo se nella lezione c'è davvero.
 - Ometti il rumore: comunicazioni organizzative, battute, divagazioni non legate all'argomento.
 
 ═══ 2. STRUTTURA E FORMATO ═══
@@ -1507,7 +1508,7 @@ Schema JSON (rispetta quest'ordine dei campi):
 - Se la lezione è costruita su una progressione (livelli, fasi, passi), quella è la spina dorsale degli appunti: ha una sezione sua e, se gli schemi sono attivi, uno schema.
 - Hai a disposizione tutta la sintassi di Obsidian descritta nelle skill (evidenze colorate, callout, tabelle, frecce, note a piè di pagina, link, tag, formule, codice, schemi). Usa ogni strumento quando rende gli appunti più chiari, scegliendolo come indicano le skill.
 - Scrivi in Markdown; l'HTML solo nei casi previsti dalla skill comandi-markdown.
-- Codice in blocchi solo per materie tecniche. Formule LaTeX solo se la disciplina le usa: inline $...$, display $$...$$. Nel JSON ogni backslash va raddoppiato (es. \\\\frac).
+- Codice in blocchi solo per materie tecniche. Formule LaTeX solo per formule presenti nella lezione: inline $...$, display $$...$$. Nel JSON ogni backslash va raddoppiato (es. \\\\frac).
 - Riferimenti al PDF: una riga che inizia con 📄 p.X: ...
 
 ═══ 3. ALTRI CAMPI ═══
@@ -2106,9 +2107,15 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return normForMatch(s).match(/[a-z0-9\/]+/g) || [];
     }
 
+    // Parole comuni che non dicono nulla del contenuto: non contano nel confronto
+    const NOTE_STOPWORDS = new Set(('per che con del della dello delle degli dei nel nella nelle negli sul sulla sui '
+      + 'una uno gli non come anche piu molto molta molti poco fare fatto essere avere sono era stato questo questa '
+      + 'quello quella questi quelli cosa tutto tutti ogni dove quando quindi cioe allora pero oppure sempre gia '
+      + 'mai solo tra fra dal dalla dai alle agli alla allo').split(' '));
+
     // Un punto è "coperto" se almeno il 70% delle sue parole significative compare nel testo generato
     function noteIsCovered(item, outputHtml) {
-      const words = noteTokens(item).filter(t => t.length >= 3 || t.startsWith('/'));
+      const words = noteTokens(item).filter(t => (t.length >= 3 || t.startsWith('/')) && !NOTE_STOPWORDS.has(t));
       if (!words.length) return true;
       const present = new Set(noteTokens(outputHtml));
       const hits = words.filter(w => present.has(w)).length;
@@ -2134,8 +2141,13 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       const missing = items.filter(it => !noteIsCovered(it, text));
       if (!missing.length) return parsed;
       if (isMd) {
-        parsed.notes_md = parsed.notes_md.trimEnd() + '\n\n## 📝 I tuoi appunti\n\n'
-          + missing.map(m => '- ' + m).join('\n') + '\n';
+        // La sezione va prima dei tag finali (#materia/argomento), che devono restare in fondo
+        const md = parsed.notes_md.trimEnd();
+        const tagLine = md.match(/\n((?:#[\p{L}\p{N}_\/-]+[ \t]*)+)$/u);
+        const body = tagLine ? md.slice(0, tagLine.index).trimEnd() : md;
+        parsed.notes_md = body + '\n\n## 📝 I tuoi appunti\n\n'
+          + missing.map(m => '- ' + m).join('\n') + '\n'
+          + (tagLine ? '\n' + tagLine[1].trim() + '\n' : '');
       } else {
         parsed.notes_html = text + '<h2>📝 I tuoi appunti</h2><ul>'
           + missing.map(m => '<li>' + escHtml(m) + '</li>').join('') + '</ul>';
@@ -2200,6 +2212,10 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       // ── Elenchi ──
       const bare = (t.match(/^\s*[-*+]\s+\*\*[^*\n]+\*\*:?\s*$/gm) || []).length;
       if (bare) issues.push(`${bare} voci di elenco hanno solo il termine in grassetto: aggiungi la spiegazione data a lezione oppure trasforma l'elenco in una frase`);
+
+      // ── Tabelle: i callout non funzionano nelle celle ──
+      const tableCallouts = (t.match(/^\s*\|.*>\s*\[!\w+\]/gm) || []).length;
+      if (tableCallouts) issues.push(`${tableCallouts} righe di tabella contengono un callout, che nelle celle non funziona: scrivi l'avvertenza come testo nella cella oppure in un callout sotto la tabella`);
 
       // ── Schemi ──
       const blocks = mermaidBlocks(raw);
