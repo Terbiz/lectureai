@@ -17,7 +17,7 @@ Puoi usare tutti questi strumenti. Scegli quello giusto con la skill `quando-usa
 | Elenchi | `- voce`, `1. passo`, task `- [ ] da fare`; per annidare, rientro di 4 spazi |
 | Citazione | `> testo` e sotto la fonte |
 | Callout | `> [!tipo] Titolo` e poi righe `> testo`; chiuso `[!tipo]-`, aperto `[!tipo]+` |
-| Tabella | `\| A \| B \|` e sotto `\| --- \| --- \|`; allineamento `:--`, `:--:`, `--:`; a capo nella cella `<br>` |
+| Tabella | `\| A \| B \|` e sotto `\| --- \| --- \|`; allineamento `:--`, `:--:`, `--:`; a capo nella cella `<br>`. Nelle celle solo testo, grassetto, corsivo, evidenze e link: niente callout, elenchi o blocchi |
 | Frecce | `A → B → C` su una riga a sé |
 | Codice | blocco con il linguaggio (` ```python `); inline `` `x` `` |
 | Formule | `$...$` inline, `$$...$$` su righe proprie |

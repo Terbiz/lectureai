@@ -57,7 +57,8 @@ targets: [app, obsidian]
 | Codice | blocco con il linguaggio |
 | Contenuto superato o corretto dal professore | barrato `~~...~~` seguito dalla forma giusta |
 
-- Callout: massimo 1 per sezione, il tipo segue il significato e non l'estetica.
+- Callout: massimo 1 per sezione, il tipo segue il significato e non l'estetica. Mai dentro una tabella: un'avvertenza su una riga va in una colonna "Note" come testo, oppure in un callout sotto la tabella.
+- Formule: solo se il professore ne ha data una. Un concetto spiegato a parole resta a parole.
 - Paragrafi di 2–5 frasi.
 - Se un contenuto non rientra in nessun caso, usa un paragrafo normale.
 - Lo strumento cambia solo la forma: frasi, dati e numeri della lezione restano tutti.
