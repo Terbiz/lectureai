@@ -1565,6 +1565,7 @@ Schema JSON (rispetta quest'ordine dei campi):
 
 ═══ 2. STRUTTURA E FORMATO ═══
 - notes_md segue lecture_outline.sequenza: una sezione ## per argomento, nell'ordine della lezione (di solito 5-10 sezioni). Il titolo # lo aggiunge l'app.
+- Completezza: gli appunti coprono TUTTA la lezione, non sono un riassunto. Ogni passaggio, esempio, strumento, consiglio e avvertenza del professore ha il suo spazio. Come ordine di grandezza, gli appunti sono lunghi almeno un quarto della trascrizione.
 - Se la lezione è costruita su una progressione (livelli, fasi, passi), quella è la spina dorsale degli appunti: ha una sezione sua e, se gli schemi sono attivi, uno schema.
 - Hai a disposizione tutta la sintassi di Obsidian descritta nelle skill (evidenze colorate, callout, tabelle, frecce, note a piè di pagina, link, tag, formule, codice, schemi). Usa ogni strumento quando rende gli appunti più chiari, scegliendolo come indicano le skill.
 - Scrivi in Markdown; l'HTML solo nei casi previsti dalla skill comandi-markdown.
@@ -2466,11 +2467,20 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     const normText = s => s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
     const mermaidBlocks = md => [...String(md || '').matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map(m => m[1]);
 
-    function notesQualityIssues(md, title) {
+    const NOTES_MIN_RATIO = 0.15;   // appunti più corti del 15% della trascrizione = mancano parti della lezione
+    const TOO_SHORT_TAG = 'troppo brevi rispetto alla lezione';
+
+    function notesQualityIssues(md, title, srcLen) {
       const raw = String(md || '');
       const t = stripCode(raw);
       const words = (t.match(/\S+/g) || []).length;
       const issues = [];
+
+      // ── Lunghezza rispetto alla trascrizione (solo lezioni elaborate in una volta) ──
+      if (srcLen > 8000 && raw.length < srcLen * NOTES_MIN_RATIO) {
+        issues.push(`gli appunti sono ${TOO_SHORT_TAG} (${raw.length.toLocaleString('it-IT')} caratteri contro ${srcLen.toLocaleString('it-IT')} della trascrizione): `
+          + 'aggiungi nelle sezioni giuste, o in sezioni nuove, i passaggi, gli esempi, gli strumenti e i consigli della trascrizione che mancano. Non togliere nulla di ciò che c\'è');
+      }
 
       // ── Evidenze ──
       const hls = [...t.matchAll(HL_RE)].map(m => m[2].trim());
@@ -2553,31 +2563,33 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
       return out;
     }
 
-    async function allNotesIssues(md, title) {
-      return [...notesQualityIssues(md, title), ...(await mermaidSyntaxIssues(md))];
+    async function allNotesIssues(md, title, srcLen) {
+      return [...notesQualityIssues(md, title, srcLen), ...(await mermaidSyntaxIssues(md))];
     }
 
     // Correzione mirata: il modello riceve solo gli appunti e restituisce solo notes_md
     function getSysFix() {
       return 'Sei un correttore di formato per appunti universitari in Markdown Obsidian. '
-        + 'Correggi SOLO i problemi elencati nel messaggio. Non togliere, non aggiungere e non riassumere contenuti. '
+        + 'Correggi SOLO i problemi elencati nel messaggio. Non togliere e non riassumere contenuti; aggiungi contenuti solo se un problema lo chiede, prendendoli dalla trascrizione fornita. '
         + 'Rispondi solo con JSON valido nella forma {"notes_md": "..."}. Nel JSON ogni backslash va raddoppiato.'
         + getSkillsBlock();
     }
 
-    function qualityRetryMsg(notesMd, issues) {
+    function qualityRetryMsg(notesMd, issues, transcript) {
+      const needsSource = !!transcript && issues.some(x => x.includes(TOO_SHORT_TAG));
       return 'Problemi da correggere:\n- ' + issues.join('\n- ')
-        + '\n\nCambia solo le evidenze, i titoli, gli elenchi e gli schemi indicati. Tutto il resto deve restare identico.'
-        + '\n\nAPPUNTI:\n' + notesMd;
+        + '\n\nCambia solo ciò che i problemi indicano. Tutto il resto deve restare identico.'
+        + '\n\nAPPUNTI:\n' + notesMd
+        + (needsSource ? '\n\nTRASCRIZIONE DELLA LEZIONE (fonte per le parti mancanti):\n' + transcript : '');
     }
 
     // La correzione viene accettata solo se non toglie contenuto e riduce i problemi
-    async function acceptFix(oldMd, newMd, oldIssueCount, title) {
+    async function acceptFix(oldMd, newMd, oldIssueCount, title, srcLen) {
       const count = (s, re) => (s.match(re) || []).length;
       if (newMd.trim().length < oldMd.trim().length * 0.9) return false;            // ha tagliato contenuto
       if (count(newMd, /^##\s/gm) < count(oldMd, /^##\s/gm)) return false;          // ha tolto sezioni
       if (count(newMd, /```mermaid/g) < count(oldMd, /```mermaid/g)) return false;  // ha tolto schemi
-      return (await allNotesIssues(newMd, title)).length < oldIssueCount;           // deve migliorare
+      return (await allNotesIssues(newMd, title, srcLen)).length < oldIssueCount;   // deve migliorare
     }
 
     async function generate() {
@@ -2668,16 +2680,19 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
         // 4) Controllo qualità e, se serve, una sola correzione mirata
         Prog.begin('controllo');
         setOv('Controllo di evidenze, titoli e schemi...');
-        const issues = await allNotesIssues(parsed.notes_md, parsed.title);
+        // Confronto di lunghezza solo per le lezioni elaborate in una volta (non a blocchi)
+        const srcText = hasTr && !isLong ? normMath(compressTranscript(rawTr)) : '';
+        const srcLen = srcText.length;
+        const issues = await allNotesIssues(parsed.notes_md, parsed.title, srcLen);
         Prog.done('controllo', issues.length ? issues.length + ' punti da sistemare' : 'tutto a posto');
         if (issues.length && String(parsed.notes_md || '').trim()) {
           console.warn('[qualità] da correggere:', issues.join('; '));
           Prog.begin('correzione');
           setOv('Sistemo evidenze, titoli e schemi...');
           try {
-            const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues), getSysFix(), { tier: 'heavy' }));
+            const fixed = parseJSON(await callAI(qualityRetryMsg(parsed.notes_md, issues, srcText), getSysFix(), { tier: 'heavy' }));
             const newMd = String(fixed.notes_md || '');
-            if (newMd && await acceptFix(parsed.notes_md, newMd, issues.length, parsed.title)) {
+            if (newMd && await acceptFix(parsed.notes_md, newMd, issues.length, parsed.title, srcLen)) {
               parsed.notes_md = newMd;                       // cambia solo notes_md
               parsed = ensureUserNotes(parsed, notesItems);
               parsed.quality_fix = 'accettata';
@@ -2693,7 +2708,7 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
             console.warn('[qualità] correzione fallita:', e.message);
             Prog.fail('correzione', 'non riuscita: tengo la prima versione');
           }
-          const left = notesQualityIssues(parsed.notes_md, parsed.title);
+          const left = notesQualityIssues(parsed.notes_md, parsed.title, srcLen);
           if (left.length) console.warn('[qualità] ancora da migliorare:', left.join('; '));
           if (skillSchemiOn && !/```mermaid/.test(String(parsed.notes_md || ''))) {
             toast('⚠ La AI non ha inserito schemi: riprova la generazione.', 'err');

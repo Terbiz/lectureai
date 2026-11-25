@@ -70,7 +70,7 @@ def proxy_gemini(model_path):
     api_key = _gemini_key()
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_path}'
     try:
-        resp = requests.post(url, json=request.get_json(), headers={'x-goog-api-key': api_key}, timeout=170)
+        resp = requests.post(url, json=request.get_json(), headers={'x-goog-api-key': api_key}, timeout=540)
         return Response(
             resp.content,
             status=resp.status_code,
@@ -113,7 +113,7 @@ def proxy_anthropic():
             'https://api.anthropic.com/v1/messages',
             json=request.get_json(),
             headers=headers,
-            timeout=120
+            timeout=540
         )
         return Response(
             resp.content,
@@ -225,7 +225,7 @@ def transcribe_audio():
     try:
         resp = requests.post(
             f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-            json=body, headers={'x-goog-api-key': api_key}, timeout=170
+            json=body, headers={'x-goog-api-key': api_key}, timeout=540
         )
         if not resp.ok:
             return Response(resp.content, status=resp.status_code, content_type='application/json')
