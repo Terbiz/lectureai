@@ -2255,28 +2255,46 @@ Rispondi SOLO con JSON valido, senza testo fuori dal JSON:
     // ══════════════════════════════════════════════════════════════
     function mdEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+    // Sintassi Obsidian → HTML per il sito (il Markdown salvato e l'esportazione restano invariati).
+    // Applicata solo al testo: i blocchi di codice vengono lasciati intatti (vedi mdToHtml).
+    function obsidianToWeb(t) {
+      return t
+        .replace(/%%[\s\S]*?%%/g, '')                                                   // commenti: nascosti, come in Obsidian
+        .replace(/!\[\[([^\]\n]+)\]\]/g, (_, n) => '<span class="ob-embed">📎 ' + mdEsc(n) + '</span>')
+        .replace(/\[\[([^\]\n|]+)\|([^\]\n]+)\]\]/g, (_, a, b) => '<span class="ob-link">' + mdEsc(b) + '</span>')
+        .replace(/\[\[([^\]\n]+)\]\]/g, (_, a) => '<span class="ob-link">' + mdEsc(a) + '</span>')
+        .replace(/==([^=\n]+?)==/g, (_, x) => '<mark>' + x + '</mark>')
+        // #tag: deve avere almeno una lettera, così #1 e i titoli "# Titolo" non vengono toccati
+        .replace(/(^|\s)#(?=[^\s#]*[A-Za-zÀ-ÿ])([A-Za-z0-9_\-\/À-ÿ]+)/gm, (_, p, tag) => p + '<span class="ob-tag">#' + mdEsc(tag) + '</span>');
+    }
+
     function mdToHtml(md) {
       const src = String(md || '');
       if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
         return '<pre style="white-space:pre-wrap">' + mdEsc(src) + '</pre>';
       }
-      // 1) Le formule non devono essere toccate da marked (_ e * dentro $...$)
+      // 1) Codice (blocchi e inline) intatto; nel resto: sintassi Obsidian e formule protette
+      //    (le formule non devono essere toccate da marked: _ e * dentro $...$)
       const maths = [];
-      const protectedSrc = src.replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, m => {
-        maths.push(m);
-        return 'MATHPH' + (maths.length - 1) + 'X';
-      });
+      const pieces = src.split(/(```[\s\S]*?```|`[^`\n]+`)/); // indici dispari = codice
+      const protectedSrc = pieces.map((seg, i) => {
+        if (i % 2 === 1) return seg;
+        return obsidianToWeb(seg).replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g, m => {
+          maths.push(m);
+          return 'MATHPH' + (maths.length - 1) + 'X';
+        });
+      }).join('');
       // 2) Markdown → HTML
       const html = marked.parse(protectedSrc);
       // 3) Callout in stile Obsidian: > [!tipo] titolo → div.callout.callout-tipo
       const doc = new DOMParser().parseFromString('<div id="root">' + html + '</div>', 'text/html');
       doc.querySelectorAll('blockquote').forEach(bq => {
         const first = bq.firstElementChild;
-        const m = first && first.textContent.match(/^\s*\[!(\w+)\]/);
+        const m = first && first.textContent.match(/^\s*\[!(\w+)\][+-]?/);
         if (!m) return;
         const type = m[1].toLowerCase();
         const node = first.firstChild;
-        if (node && node.nodeType === 3) node.textContent = node.textContent.replace(/^\s*\[!\w+\]\s*/, '');
+        if (node && node.nodeType === 3) node.textContent = node.textContent.replace(/^\s*\[!\w+\][+-]?\s*/, '');
         const div = doc.createElement('div');
         div.className = 'callout callout-' + type;
         div.innerHTML = bq.innerHTML;

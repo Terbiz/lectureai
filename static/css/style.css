@@ -2308,6 +2308,10 @@ pre.code-block {
 .callout.callout-tip { border-left-color: #22C55E; }
 .callout.callout-example { border-left-color: #0EA5E9; }
 .callout.callout-important { border-left-color: #F59E0B; }
+.nc mark { background: rgba(250, 204, 21, 0.45); color: inherit; padding: 0 3px; border-radius: 3px; }
+.nc .ob-link { color: var(--btn-primary); border-bottom: 1px dotted var(--btn-primary); }
+.nc .ob-embed { display: inline-block; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px 8px; font-size: .85em; }
+.nc .ob-tag { display: inline-block; background: var(--primary-soft); color: var(--btn-primary); border-radius: 10px; padding: 0 8px; font-size: .85em; font-weight: 600; }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
